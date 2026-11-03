@@ -419,8 +419,7 @@ clearTitle/
 │   │
 │   ├── shared/constants.py         # doc-type + status string constants
 │   ├── shared/ec_ledger.py         # EC page-split row recombinator (read-boundary fix)
-│   ├── shared/helpers.py           # LLM output merge helpers
-│   └── tests/                      # pytest suite
+│   └── shared/helpers.py           # LLM output merge helpers
 │
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/
@@ -558,12 +557,11 @@ uvicorn backend.main:app --reload --port 8000
 
 Open **http://localhost:8000** in your browser.
 
-### Lint & tests
+### Lint
 
 ```bash
 ruff check backend        # backend lint
 cd frontend && npm run lint   # frontend type-check (tsc --noEmit)
-pytest backend/tests      # backend unit tests
 ```
 
 </details>
