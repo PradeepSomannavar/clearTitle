@@ -17,14 +17,10 @@ import json
 from backend.database.connection import _get_conn
 from backend.database.repositories.case_repo import (
     get_case_status_payload as _mysql_case_payload,
-)
-from backend.database.repositories.case_repo import (
     set_case_status as _mysql_set_case_status,
 )
-from backend.database.repositories.verification_repo import (
+from backend.database.repositories.pipeline_log_repo import (
     append_pipeline_log,
-)
-from backend.database.repositories.verification_repo import (
     get_pipeline_logs as _mysql_pipeline_logs,
 )
 from backend.integrations.redis.client import get_redis as _get_client
@@ -323,27 +319,6 @@ def delete_case(case_id: str) -> int:
         return count
     except Exception as e:
         print(f"Failed to delete Redis cache for case {case_id}: {e}")
-        return 0
-
-
-# ── Full flush ────────────────────────────────────────────────────────────────────
-
-def flush_all_cases() -> int:
-    """Delete ALL case:* keys from the Redis cache. Returns count of keys deleted."""
-    try:
-        r = _get_client()
-        count = 0
-        cursor = 0
-        while True:
-            cursor, keys = r.scan(cursor=cursor, match="case:*", count=100)
-            if keys:
-                r.delete(*keys)
-                count += len(keys)
-            if cursor == 0:
-                break
-        return count
-    except Exception as e:
-        print(f"Failed to flush Redis cache: {e}")
         return 0
 
 

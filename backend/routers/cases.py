@@ -14,8 +14,6 @@ from backend.celery_app import celery_app
 from backend.config import PIPELINE_LOCK_ENABLED
 from backend.database.repositories.case_repo import (
     delete_case as db_delete_case,
-)
-from backend.database.repositories.case_repo import (
     get_case_owner,
     init_case,
     list_cases,
@@ -32,18 +30,12 @@ from backend.database.repositories.document_repo import (
 from backend.integrations.redis.state_store import (
     add_files_to_case,
     append_log,
+    case_exists as redis_case_exists,
+    delete_case as redis_delete_case,
     get_case_job,
+    init_case as redis_init_case,
     reset_for_retry,
     set_case_status,
-)
-from backend.integrations.redis.state_store import (
-    case_exists as redis_case_exists,
-)
-from backend.integrations.redis.state_store import (
-    delete_case as redis_delete_case,
-)
-from backend.integrations.redis.state_store import (
-    init_case as redis_init_case,
 )
 from backend.integrations.storage.file_utils import delete_case_dir, get_case_dir, save_upload
 from backend.logger import get_logger
@@ -69,13 +61,6 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 _executor = ThreadPoolExecutor(max_workers=4)
-
-
-def _require_owner(case_id: str, user: dict) -> None:
-    """403 unless the case belongs to the authenticated user."""
-    owner = get_case_owner(case_id)
-    if owner and owner != user["id"]:
-        raise HTTPException(status_code=403, detail="Not your case")
 
 
 def _enforce_access(case_id: str, user: dict | None) -> None:

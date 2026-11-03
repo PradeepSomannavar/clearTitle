@@ -21,7 +21,7 @@ def finalize_case_task(results: list, case_id: str):
         recompute_case_status,
     )
     from backend.database.repositories.document_repo import get_case_documents
-    from backend.database.repositories.verification_repo import append_pipeline_log
+    from backend.database.repositories.pipeline_log_repo import append_pipeline_log
 
     # 1. Recompute MySQL case status (counts completed and failed documents)
     try:
