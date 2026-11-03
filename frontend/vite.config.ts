@@ -18,8 +18,7 @@ export default defineConfig(() => {
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       // In dev, forward real backend calls (upload/process/status/verify) to FastAPI.
-      // The Express mock /api/verify-property is registered before this middleware,
-      // so the home-page demo still uses the mock.
+      // No demo/AI endpoint exists here anymore — the SPA talks to FastAPI directly.
       proxy: {
         '/api': {
           target: process.env.FASTAPI_URL || 'http://localhost:8000',

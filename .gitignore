@@ -23,9 +23,6 @@ backups/
 # Scratch directory
 scratch/
 
-# Probe-local test inputs / OCR exports (user's scanned documents — never commit)
-bodhan_ocr_probe/files/
-sarvam_extract_probe/results/
 out_put.html
 
 # Docs & IDE

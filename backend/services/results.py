@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from backend.database.repositories.document_repo import get_case_documents
-from backend.database.repositories.title_chain_repo import get_title_chain
-from backend.database.repositories.verification_results_repo import get_verification_results
 
 
 def _case_row(case_id: str) -> dict:
@@ -13,7 +11,7 @@ def _case_row(case_id: str) -> dict:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT id, status, total_docs, completed_docs, failed_docs, "
-            "verification_status, verdict, created_at, updated_at "
+            "created_at, updated_at "
             "FROM cases WHERE id = %s",
             (case_id,),
         )
@@ -26,24 +24,6 @@ def _case_row(case_id: str) -> dict:
 def build_case_results(case_id: str) -> dict:
     case = _case_row(case_id)
     documents = get_case_documents(case_id)
-    title_chain = get_title_chain(case_id)
-    verification = get_verification_results(case_id)
-
-    if not title_chain:
-        title_chain = {"case_id": case_id, "status": "pending", "chain": []}
-    if not isinstance(title_chain.get("chain"), list):
-        title_chain["chain"] = []
-
-    if not verification:
-        verification = {
-            "case_id": case_id,
-            "status": "pending",
-            "verdict": "N/A",
-            "summary": {},
-            "items": [],
-        }
-    if not isinstance(verification.get("items"), list):
-        verification["items"] = []
 
     return {
         "case": {
@@ -52,8 +32,6 @@ def build_case_results(case_id: str) -> dict:
             "total_docs": case["total_docs"],
             "completed_docs": case["completed_docs"],
             "failed_docs": case["failed_docs"],
-            "verification_status": case.get("verification_status"),
-            "verdict": case.get("verdict"),
             "created_at": case.get("created_at"),
             "updated_at": case.get("updated_at"),
         },
@@ -73,8 +51,6 @@ def build_case_results(case_id: str) -> dict:
             for d in documents
         ],
         "needs_action": _needs_action(case_id),
-        "title_chain": title_chain,
-        "verification": verification,
     }
 
 

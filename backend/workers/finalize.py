@@ -56,12 +56,3 @@ def finalize_case_task(results: list, case_id: str):
         RedisLock(f"case:{case_id}:pipeline_lock").force_release()
     except Exception as e:
         logger.error("Failed to release pipeline lock for case %s: %s", case_id, e)
-
-    # 4. Follow-on analysis: title chain → verification (only when all docs structured)
-    if new_status == "complete":
-        from backend.workers.title_chain_tasks import run_case_analysis_task
-        try:
-            run_case_analysis_task.apply_async(args=[case_id])
-            logger.info("Queued title-chain + verification for case %s", case_id)
-        except Exception as e:
-            logger.error("Failed to queue title-chain + verification for case %s: %s", case_id, e)

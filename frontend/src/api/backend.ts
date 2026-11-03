@@ -44,9 +44,6 @@ export interface StatusResponse {
   completed_docs?: number;
   total_docs?: number;
   failed_docs?: number;
-  verification_status?: string | null;
-  verdict?: string | null;
-  title_chain_status?: string | null;
   log?: string[];
   results?: any[];
   errors?: any[];
@@ -60,8 +57,6 @@ export interface CaseListItem {
   completed_docs: number;
   total_docs: number;
   failed_docs?: number;
-  verification_status?: string | null;
-  verdict?: string | null;
   created_at?: string;
 }
 
@@ -86,34 +81,6 @@ export interface OcrTextResponse {
   documents: OcrDocText[];
 }
 
-export interface TitleChainEntry {
-  transaction_index?: number | null;
-  execution_date?: string | null;
-  registration_reference?: string | null;
-  transaction_type?: string | null;
-  parties?: any;
-  financials?: any;
-  property_details?: any;
-  source?: string;
-  chain_role?: string;
-  is_sale_deed_entry?: boolean;
-  is_title_transfer?: boolean;
-  is_agreement_to_sell?: boolean;
-  portion?: string | null;
-  share_fraction?: string | null;
-  property_identity?: string | null;
-  explanation?: string | null;
-}
-
-export interface VerificationItem {
-  field?: string;
-  sd_value?: unknown;
-  ec_value?: unknown;
-  khata_value?: unknown;
-  status: "VERIFIED" | "NOT_VERIFIED" | "N/A" | string;
-  notes?: string;
-}
-
 export interface CaseResults {
   case: {
     case_id: string;
@@ -121,39 +88,11 @@ export interface CaseResults {
     total_docs: number;
     completed_docs: number;
     failed_docs: number;
-    verification_status?: string | null;
-    verdict?: string | null;
     created_at?: string;
     updated_at?: string;
   };
   documents: any[];
   needs_action?: any[];
-  title_chain: {
-    status?: string;
-    chain: TitleChainEntry[];
-    title_story?: string | null;
-    model_used?: string;
-    updated_at?: string;
-    source?: {
-      title_story?: string | null;
-      sd_property?: any;
-      message?: string | null;
-      required_documents?: Array<{
-        date?: string | null;
-        instrument_event?: string | null;
-        parties_effect?: string | null;
-        required_docs?: string | null;
-      }>;
-    } | null;
-  } | null;
-  verification: {
-    status?: string;
-    verdict?: string;
-    summary?: any;
-    items: VerificationItem[];
-    model_used?: string;
-    updated_at?: string;
-  } | null;
 }
 
 async function apiError(response: Response, fallback = "Request failed"): Promise<string> {
@@ -274,17 +213,5 @@ export const API = {
 
   async getOcr(caseId: string): Promise<OcrTextResponse> {
     return request<OcrTextResponse>(`/api/results/${caseId}/ocr`);
-  },
-
-  async analyze(caseId: string): Promise<{ case_id: string; status: string }> {
-    return request(`/api/results/${caseId}/analyze`, { method: "POST" });
-  },
-
-  async reverify(caseId: string): Promise<{ case_id: string; status: string }> {
-    return request(`/api/results/${caseId}/verify`, { method: "POST" });
-  },
-
-  async rerunTitleChain(caseId: string): Promise<{ case_id: string; status: string }> {
-    return request(`/api/results/${caseId}/title-chain`, { method: "POST" });
   },
 };

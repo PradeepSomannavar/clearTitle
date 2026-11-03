@@ -4,15 +4,13 @@ import './dashboard.css';
 import clearTitleLogo from '../assets/clearTitle.png';
 import {
   API, AuthResponse, AuthUser, CaseListItem, CaseResults, HealthStatus,
-  StatusResponse, TitleChainEntry, VerificationItem, getToken, setToken,
+  StatusResponse, getToken, setToken,
 } from '../api/backend';
 import { DocSummary } from './utils';
 import {
-  AlertTriangle, ArrowLeft, BarChart3, Check, CheckCircle2,
-  ChevronDown, ChevronUp, FileText, FileUp,
-  GitMerge, Lock, LogIn, LogOut, MapPin, Menu, MinusCircle,
-  Play, Plus, RefreshCw, ShieldCheck, Sparkles, Download,
-  Trash2, Upload, Users, X, XCircle, ScrollText,
+  AlertTriangle, Check, CheckCircle2,
+  FileText, FileUp, Lock, LogIn, LogOut, Menu, Play, Plus, RefreshCw,
+  Sparkles, Trash2, Upload, X, ScrollText,
 } from 'lucide-react';
 
 type View = 'upload' | 'processing' | 'results';
@@ -24,8 +22,6 @@ interface SlotFile { file: File; slot: UploadSlot }
 interface LogEntry { text: string; cls: string }
 
 const COMPLETE_STATUSES = ['complete', 'completed', 'partial'];
-
-const ANALYSIS_WAIT_MS = 8 * 60 * 1000;
 
 function profileInitials(u: AuthUser): string {
   const name = (u.full_name || '').trim();
@@ -117,50 +113,14 @@ function DocPipelineCard({ doc, compact }: { doc: { doc_id: string; original_nam
   );
 }
 
-function PhaseStep({ icon, label, status }: {
-  icon: React.ReactNode;
-  label: string;
-  status: 'pending' | 'active' | 'done';
-}) {
-  const statusIcon = status === 'done' ? <Check size={16} style={{ color: '#059669' }} />
-    : status === 'active' ? <Sparkles size={16} style={{ color: '#ea580c' }} />
-    : <span className="phase-dot-pending" />;
-
-  return (
-    <div className={`phase-step ${status}`}>
-      <div className="phase-step-icon">{statusIcon}</div>
-      <div className="phase-step-content">
-        <div className="phase-step-label">
-          {label}
-          {status === 'active' && <AiDots />}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function AIPipeline({ statusData }: { statusData: StatusResponse }) {
   const files = statusData.files || [];
   const allDone = files.length > 0 && files.every(f => f.status === 'structured' || f.status === 'failed' || f.status === 'classification_failed');
   const anyActive = files.some(f => f.status !== 'uploaded' && f.status !== 'structured' && f.status !== 'failed' && f.status !== 'classification_failed');
-  const allStructured = files.every(f => f.status === 'structured');
   const hasFiles = files.length > 0;
 
-  const tcStatus = statusData.title_chain_status;
-  const vStatus = statusData.verification_status;
-
-  let titleChainState: 'pending' | 'active' | 'done' = 'pending';
-  if (tcStatus === 'complete' || tcStatus === 'error') titleChainState = 'done';
-  else if (allDone && tcStatus && tcStatus !== 'pending') titleChainState = 'active';
-  else if (allDone && statusData.status === 'complete') titleChainState = 'active';
-
-  let verifyState: 'pending' | 'active' | 'done' = 'pending';
-  if (vStatus === 'complete') verifyState = 'done';
-  else if (titleChainState === 'done' && vStatus) verifyState = 'active';
-  else if (titleChainState === 'done' && !vStatus) verifyState = 'active';
-
+  const allComplete = allDone && hasFiles;
   const showAnalysis = allDone && hasFiles;
-  const allComplete = titleChainState === 'done' && verifyState === 'done';
   const activeDocCount = files.filter(f => f.status !== 'uploaded' && f.status !== 'structured' && f.status !== 'failed' && f.status !== 'classification_failed').length;
   const doneDocCount = files.filter(f => f.status === 'structured').length;
 
@@ -174,11 +134,11 @@ function AIPipeline({ statusData }: { statusData: StatusResponse }) {
         <div>
           <div className="ai-text">
             {allComplete
-              ? 'Analysis complete'
+              ? 'Extraction complete'
               : anyActive
                 ? <>AI is analyzing your documents<AiDots /></>
                 : showAnalysis
-                  ? 'Running final analysis...'
+                  ? 'Running final extraction...'
                   : 'Preparing documents...'}
           </div>
           {hasFiles && (
@@ -193,26 +153,10 @@ function AIPipeline({ statusData }: { statusData: StatusResponse }) {
         </div>
       </div>
 
-      {/* Phase 1: Document cards */}
+      {/* Document cards */}
       {files.map(f => (
         <DocPipelineCard key={f.doc_id} doc={f} compact={showAnalysis} />
       ))}
-
-      {/* Phase 2: Analysis steps — only show after all docs done */}
-      {showAnalysis && (
-        <div className="analysis-steps">
-          <PhaseStep
-            icon={<GitMerge size={16} />}
-            label="Building title chain"
-            status={titleChainState}
-          />
-          <PhaseStep
-            icon={<ShieldCheck size={16} />}
-            label="Verifying title"
-            status={verifyState}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -224,46 +168,11 @@ function caseBadgeClass(status: string): string {
   return "badge-blue";
 }
 
-function verdictBadge(verdict?: string | null): React.ReactNode {
-  if (!verdict) return null;
-  const v = verdict.toUpperCase();
-  const isClear = v === "VERIFIED" || v === "CLEAR_TITLE" || v.includes("CLEAR");
-  const isAttention = v === "NOT_VERIFIED" || v === "REQUIRED_ATTENTION" || v === "ATTENTION_REQUIRED" || v.includes("ATTENTION") || v.includes("DISCREPANC") || v.includes("NOT_");
-
-  if (isClear) {
-    return (
-      <span className="verdict-text verdict-clear">
-        <ShieldCheck size={12} /> ClearTitle
-      </span>
-    );
-  }
-  if (isAttention) {
-    return (
-      <span className="verdict-text verdict-attention">
-        <AlertTriangle size={12} /> Attention Required
-      </span>
-    );
-  }
-  return <span className="verdict-text">{verdict}</span>;
-}
-
 function fmtDate(value?: string | null): string {
   if (!value) return "";
   const d = new Date(value);
   if (isNaN(d.getTime())) return value;
   return d.toLocaleString();
-}
-function chainDateMs(e: TitleChainEntry): number | null {
-  const t = Date.parse(e.execution_date || '');
-  return isNaN(t) ? null : t;
-}
-
-function sortChain(chain: TitleChainEntry[]): TitleChainEntry[] {
-  return [...chain].sort((a, b) => {
-    const da = chainDateMs(a), db = chainDateMs(b);
-    if (da != null && db != null && da !== db) return da - db;
-    return (a.transaction_index ?? 0) - (b.transaction_index ?? 0);
-  });
 }
 
 const UPLOAD_SLOTS: { id: UploadSlot; label: string; desc: string; required: boolean; multiple?: boolean }[] = [
@@ -271,638 +180,6 @@ const UPLOAD_SLOTS: { id: UploadSlot; label: string; desc: string; required: boo
   { id: 'ec', label: 'Encumbrance Certificate (EC)', desc: 'The EC ledger covering the search period.', required: true },
   { id: 'additional', label: 'Additional Documents', desc: 'RTC, Khata, Mutation, prior deeds — optional.', required: false, multiple: true },
 ];
-
-function parsePartyIdentity(raw: string): { name: string; rep: string; addr: string } {
-  const out = { name: '', rep: '', addr: '' };
-  if (!raw) return out;
-  let s = raw.trim();
-
-  const addrMatch = s.match(/(?:,\s*)?(?:r\/o|r\.o\.|residing at|resident of|at)\s+([\s\S]+)$/i);
-  if (addrMatch && addrMatch[1].trim()) {
-    out.addr = addrMatch[1].trim().replace(/,+$/, '');
-    s = s.slice(0, addrMatch.index).trim().replace(/,+$/, '');
-  }
-
-  const repMatch = s.match(
-    /(?:,\s*)?(rep(?:resented)?(?:'|’)?d?\s+by\s+(?:his|her|their)?\s*)(gpa|general power of attorney|power of attorney|poa|attorney)?[\s/]*holder?\s*([\s\S]+)$/i
-  );
-  if (repMatch && repMatch[3].trim()) {
-    const hasGPA = !!repMatch[2];
-    const rname = repMatch[3].trim().replace(/,+$/, '');
-    out.rep = (hasGPA ? 'Rep by GPA ' : 'Rep by ') + rname;
-    s = s.slice(0, repMatch.index).trim().replace(/,+$/, '');
-  } else {
-    const guardMatch = s.match(/(?:,\s*)?((?:legal\s+)?guardian)\s+of\s+([\s\S]+)$/i);
-    if (guardMatch && guardMatch[2].trim()) {
-      const role = guardMatch[1][0].toUpperCase() + guardMatch[1].slice(1);
-      out.rep = role + ' of ' + guardMatch[2].split(',')[0].trim();
-      s = s.slice(0, guardMatch.index).trim().replace(/,+$/, '');
-    }
-  }
-
-  out.name = s
-    .replace(/(?:,\s*)?(?:s\/o|d\/o|w\/o|son of|daughter of|wife of)\s+[^,\s]+/gi, '')
-    .replace(/\s+/g, ' ')
-    .replace(/(\s+)(\w+)\s*\2$/i, '$1$2')
-    .replace(/^,|,\s*$/g, '')
-    .trim();
-  return out;
-}
-
-function PartyRow({ p }: { p: any }) {
-  const raw = typeof p === 'string' ? p : p?.entity_name || '';
-  const parsed = parsePartyIdentity(raw);
-  const rep = (p && typeof p === 'object' && p.represented_by) || parsed.rep || null;
-  const addr = (p && typeof p === 'object' && p.address) || parsed.addr || null;
-  const name = parsed.name || raw || '—';
-  return (
-    <div className="chain-party">
-      <p className="chain-party-name" title={raw || name}>{name}</p>
-      {rep && <p className="chain-party-rep">{rep}</p>}
-      {addr && <p className="chain-party-addr">{addr}</p>}
-    </div>
-  );
-}
-
-const ADVISORY_ROLES = new Set(['DIVERGENT_BRANCH', 'ENCUMBRANCE', 'SUBSEQUENT_TRANSFER']);
-
-function chainTagCls(e: TitleChainEntry): string {
-  switch (e.chain_role || '') {
-    case 'THE_SD':
-    case 'SUBSEQUENT_TRANSFER': return 'orange';
-    case 'DIVERGENT_BRANCH': return 'amber';
-    case 'PREDECESSOR_TITLE': return 'indigo';
-    default: return 'slate';
-  }
-}
-
-function chainPropertyDescription(e: TitleChainEntry): string {
-  const pd = e.property_details;
-  if (pd && typeof pd === 'object') {
-    if (pd.description) return pd.description;
-    const plot = pd.plot_no || pd.pid_no || pd.cts_no || pd.survey_number;
-    if (plot) return String(plot);
-  }
-  return e.property_identity || '';
-}
-
-function chainSurveyIdentity(e: TitleChainEntry): string {
-  const pd = e.property_details;
-  if (e.property_identity) return e.property_identity;
-  if (pd && typeof pd === 'object') {
-    const plot = pd.plot_no || pd.cts_no || pd.survey_number || pd.pid_no;
-    if (plot) return String(plot);
-  }
-  return '';
-}
-
-function chainConsideration(e: TitleChainEntry): string {
-  const f = e.financials;
-  const v = f && typeof f === 'object' ? f.consideration_amount : (typeof f === 'string' ? f : null);
-  if (v == null || v === '') return '';
-  if (typeof v === 'number') return '₹ ' + v.toLocaleString('en-IN');
-  return String(v);
-}
-
-function chainMarketValue(e: TitleChainEntry): string {
-  const f = e.financials;
-  const v = f && typeof f === 'object' ? f.market_value : null;
-  if (v == null || v === '') return '';
-  if (typeof v === 'number') return '₹ ' + v.toLocaleString('en-IN');
-  return String(v);
-}
-
-function fmtChainDate(value?: string | null): string {
-  if (!value) return "";
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return value;
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function ChainTimeline({ chain, status, titleStory }: {
-  chain: TitleChainEntry[];
-  status?: string;
-  titleStory?: string;
-}) {
-  if (status === 'no_transactions') {
-    return (
-      <div className="vr-sheet-empty warn">
-        There are no transactions existing for this property in EC. Please upload a valid EC.
-      </div>
-    );
-  }
-  if (!chain || chain.length === 0) {
-    return (
-      <div className="vr-sheet-empty warn">
-        {titleStory || 'No title chain entries yet. Title chain is built once all documents are structured.'}
-      </div>
-    );
-  }
-
-  const sorted = sortChain(chain);
-
-  return (
-    <div className="chain-tree">
-      <section className="chain-nodes">
-        <div className="chain-spine-v" />
-        {sorted.map((e, i) => {
-          const isLast = i === sorted.length - 1;
-          const isAgreement = !!e.is_agreement_to_sell;
-          const vendors = Array.isArray(e.parties?.vendors) ? e.parties.vendors : [];
-          const purchasers = Array.isArray(e.parties?.purchasers) ? e.parties.purchasers : [];
-          const schedule = chainPropertyDescription(e);
-          const survey = chainSurveyIdentity(e);
-          const consideration = chainConsideration(e);
-          const marketValue = chainMarketValue(e);
-          const isAdvisory = ADVISORY_ROLES.has(e.chain_role || '');
-          const scheduleLong = !!schedule && schedule.length > 40;
-          const portionLong = !!e.portion && e.portion.length > 40;
-          const tagCls = chainTagCls(e);
-          return (
-            <div key={`${e.transaction_index ?? 'n'}-${i}`} className={`chain-node${isLast ? ' last' : ''}`}>
-              <div className={`chain-node-tag tag-${tagCls}`}>
-                {String(i + 1).padStart(2, '0')}
-              </div>
-              <div className="chain-node-body">
-                <div className="chain-node-meta">
-                  <div>
-                    <span className="chain-node-label">DOCUMENT TYPE</span>
-                    <p className="chain-node-value doc">
-                      {e.transaction_type || 'Transaction'}
-                      {e.transaction_index != null && (
-                        <span className={`chain-entry-badge badge-${tagCls}`}>ENTRY #{e.transaction_index}</span>
-                      )}
-                    </p>
-                  </div>
-                  {e.execution_date && (
-                    <div className="chain-meta-right">
-                      <span className="chain-node-label">EXECUTED DATE</span>
-                      <p className="chain-node-value mono">{fmtChainDate(e.execution_date)}</p>
-                    </div>
-                  )}
-                  {e.registration_reference && (
-                    <div className="chain-meta-right">
-                      <span className="chain-node-label">REGISTRATION NO</span>
-                      <p className="chain-node-value reg">{e.registration_reference}</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="chain-node-sections">
-                  <div className="chain-node-section">
-                    <div className="chain-node-section-head">
-                      <Users size={20} className="chain-section-icon" />
-                      <span>Parties</span>
-                    </div>
-                    <div className="chain-party-grid">
-                      <div>
-                        <span className="chain-node-label">{isAgreement ? 'EXECUTANT' : 'VENDORS (SELLER)'}</span>
-                        {vendors.length ? vendors.map((v, vi) => <PartyRow key={vi} p={v} />) : <div className="chain-party-none">—</div>}
-                      </div>
-                      <div>
-                        <span className="chain-node-label">{isAgreement ? 'CLAIMANT' : 'PURCHASERS (BUYER)'}</span>
-                        {purchasers.length ? purchasers.map((p, pi) => <PartyRow key={pi} p={p} />) : <div className="chain-party-none">—</div>}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="chain-node-section alt">
-                    <div className="chain-node-section-head">
-                      <MapPin size={20} className="chain-section-icon" />
-                      <span>Property &amp; Consideration</span>
-                    </div>
-                    <div className="chain-prop-grid">
-                      {survey && (
-                        <div>
-                          <span className="chain-node-label">SURVEY NO / PLOT</span>
-                          <p className="chain-node-value">{survey}</p>
-                        </div>
-                      )}
-                      {marketValue && (
-                        <div>
-                          <span className="chain-node-label">MARKET VALUE</span>
-                          <p className="chain-node-value mono-bold">{marketValue}</p>
-                        </div>
-                      )}
-                      {consideration && (
-                        <div>
-                          <span className="chain-node-label">CONSIDERATION AMOUNT</span>
-                          <p className="chain-node-value mono-bold">{consideration}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <ChainPropertyDropdown
-                  schedule={schedule}
-                  scheduleLong={scheduleLong}
-                  portion={e.portion || null}
-                  portionLong={portionLong}
-                  isAdvisory={isAdvisory}
-                  explanation={e.explanation || null}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </section>
-    </div>
-  );
-}
-
-function vrfStatusClass(s: string): string {
-  const up = (s || "N/A").toUpperCase();
-  if (up === "VERIFIED") return "ok";
-  if (up === "FLAG" || up === "NOT_VERIFIED" || up.includes("ATTENTION") || up.includes("DISCREPANC")) return "fail";
-  return "na";
-}
-
-const FIELD_ORDER: RegExp[] = [
-  /vendor/i,
-  /purchaser|buyer/i,
-  /survey|cts/i,
-  /locality|project name/i,
-  /execution|registration/i,
-];
-
-function fieldRank(name: string): number {
-  const idx = FIELD_ORDER.findIndex(r => r.test(name));
-  return idx === -1 ? 999 : idx;
-}
-
-const ABBR = /^(smt|sri|shri|dr|mr|mrs|ms|no|nos|fig|vs|etc|sd|ec|gpa|plot|st|rd|pvt|ltd)\.?$/i;
-
-function splitSummary(text: string): string[] {
-  const chunks = text.split(/\s+-\s+(?=[A-Z])/);
-  const sentences: string[] = [];
-  for (const chunk of chunks) {
-    let buf = "";
-    let prev = "";
-    for (let i = 0; i < chunk.length; i++) {
-      const ch = chunk[i];
-      const next = chunk[i + 1] || "";
-      const nextNext = chunk[i + 2] || "";
-      const wordBefore = chunk.slice(0, i).split(/\s+/).pop() || "";
-      const isSentenceEnd =
-        (ch === "." || ch === "!" || ch === "?") &&
-        next === " " &&
-        /[a-z0-9)]/.test(prev) &&
-        /[A-Z]/.test(nextNext) &&
-        !ABBR.test(wordBefore);
-      buf += ch;
-      if (isSentenceEnd) {
-        sentences.push(buf.trim());
-        buf = "";
-      }
-      prev = ch;
-    }
-    if (buf.trim()) sentences.push(buf.trim());
-  }
-  return sentences
-    .map(s => s.replace(/^[-•*]\s*/, "").trim())
-    .filter(Boolean)
-    .filter(s => !/^these include:?$/i.test(s) && !/^they include:?$/i.test(s));
-}
-
-function TypewriterBullets({ sentences, speed = 14 }: { sentences: string[]; speed?: number }) {
-  const total = sentences.reduce((n, s) => n + s.length + 1, 0);
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    setCount(0);
-    let i = 0;
-    const id = window.setInterval(() => {
-      i += 1;
-      setCount(i);
-      if (i >= total) window.clearInterval(id);
-    }, speed);
-    return () => window.clearInterval(id);
-  }, [total, speed]);
-
-  let remaining = count;
-  const items: Array<{ text: string; done: boolean }> = [];
-  for (const s of sentences) {
-    if (remaining >= s.length + 1) {
-      items.push({ text: s, done: true });
-      remaining -= s.length + 1;
-    } else {
-      items.push({ text: s.slice(0, Math.max(remaining, 0)), done: false });
-      remaining = 0;
-      break;
-    }
-  }
-
-  return (
-    <ul className="vrf-summary-list">
-      {items.map((it, i) => (
-        <li key={i} className={it.done ? "done" : "typing"}>
-          {it.text}
-          {!it.done && <span className="vrf-typing-caret" />}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function FieldRow({ it, index }: { it: VerificationItem; index: number }) {
-  const [open, setOpen] = useState(false);
-  const s = (it.status || "N/A").toUpperCase();
-  const cls = vrfStatusClass(s);
-  const Icon = s === "VERIFIED" ? CheckCircle2 : s === "FLAG" || s.includes("ATTENTION") || s.includes("NOT_") || s === "NEEDS_REVIEW" ? XCircle : MinusCircle;
-
-  return (
-    <div
-      className={`vrf-field ${cls}${open ? " open" : ""}`}
-      style={{ animationDelay: `${Math.min(index * 55, 600)}ms` }}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onClick={() => setOpen(o => !o)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          setOpen(o => !o);
-        }
-      }}
-    >
-      <span className="vrf-field-icon"><Icon size={16} /></span>
-      <span className="vrf-field-name">{it.field || "—"}</span>
-      <span className={`vrf-status-text ${cls}`}>{s}</span>
-
-      <div className="vrf-evidence">
-        <div className="vrf-evidence-row">
-          <span className="vrf-evidence-label">Sale Deed</span>
-          <span className="vrf-evidence-value">{it.sd_value != null && it.sd_value !== "" ? String(it.sd_value) : "—"}</span>
-        </div>
-        <div className="vrf-evidence-row">
-          <span className="vrf-evidence-label">EC Ledger</span>
-          <span className="vrf-evidence-value">{it.ec_value != null && it.ec_value !== "" ? String(it.ec_value) : "—"}</span>
-        </div>
-        {it.khata_value != null && it.khata_value !== "" && (
-          <div className="vrf-evidence-row">
-            <span className="vrf-evidence-label">Khata Extract</span>
-            <span className="vrf-evidence-value">{String(it.khata_value)}</span>
-          </div>
-        )}
-        {it.notes ? (
-          <div className="vrf-evidence-note">
-            <span className="vrf-evidence-label">Conclusion</span>
-            <span className="vrf-evidence-value">{it.notes}</span>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function PipelineTrace({ item }: { item: any }) {
-  const hasSd = item.sd_value != null && item.sd_value !== '';
-  const hasEc = item.ec_value != null && item.ec_value !== '';
-  const hasKhata = item.khata_value != null && item.khata_value !== '';
-  const hasNote = item.notes;
-  if (!hasSd && !hasEc && !hasKhata && !hasNote) return null;
-  const status = String(item.status || (item.pass ? 'VERIFIED' : 'N/A')).toUpperCase();
-  const isFail = status === 'FLAG' || status === 'NEEDS_REVIEW' || status === 'NOT_VERIFIED' || status.includes('ATTENTION');
-  return (
-    <div className="trace-comparison-box pipeline-trace-enter">
-      {hasSd && (
-        <div className="trace-row">
-          <span className="trace-label">Sale Deed</span>
-          <span className="trace-value">{String(item.sd_value)}</span>
-        </div>
-      )}
-      {hasEc && (
-        <div className="trace-row">
-          <span className="trace-label">EC Ledger</span>
-          <span className="trace-value">{String(item.ec_value)}</span>
-        </div>
-      )}
-      {hasKhata && (
-        <div className="trace-row">
-          <span className="trace-label">Khata Extract</span>
-          <span className="trace-value">{String(item.khata_value)}</span>
-        </div>
-      )}
-      {hasNote && (
-        <div className="trace-row conclusion">
-          <span className="trace-label">Conclusion</span>
-          <span className={`trace-value${isFail ? ' fail-text' : ''}`} style={isFail ? { color: '#dc2626' } : undefined}>
-            {isFail ? <XCircle size={14} style={{ color: '#dc2626' }} /> : <CheckCircle2 size={14} />}
-            {' '}{item.notes}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PipelineNode({ item, index }: { item: any; index: number }) {
-  const [open, setOpen] = useState(false);
-  const status = String(item.status || (item.pass ? 'VERIFIED' : 'N/A')).toUpperCase();
-  const ok = status === 'VERIFIED';
-  const na = status === 'N/A';
-  const title = item.title || item.check_name || item.field || 'Verification Check';
-  const desc = item.description || item.comment || item.details;
-  const hasTrace = item.sd_value != null || item.ec_value != null || item.khata_value != null || item.notes;
-
-  return (
-    <div
-      className={`pipeline-node stagger-${(index % 5) + 1}`}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onClick={() => setOpen(o => !o)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          setOpen(o => !o);
-        }
-      }}
-    >
-      <div className={`pipeline-dot${ok ? '' : na ? ' na' : ' fail'}`}>
-        {ok ? <Check size={20} style={{ strokeWidth: 3 }} /> : na ? <MinusCircle size={20} style={{ strokeWidth: 3 }} /> : <X size={20} style={{ strokeWidth: 3 }} />}
-      </div>
-      <div className="pipeline-content">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h3 className="pipeline-node-title">{title}</h3>
-          <span className={`badge-verified-sm ${ok ? 'ok' : na ? 'na' : 'fail'}`}>
-            {ok ? 'Verified' : na ? 'N/A' : 'Flag'}
-          </span>
-        </div>
-        {desc && <p className="pipeline-node-desc">{desc}</p>}
-        {open && hasTrace && <PipelineTrace item={item} />}
-      </div>
-    </div>
-  );
-}
-
-function TypewriterParagraph({ text, speed = 16 }: { text: string; speed?: number }) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    setCount(0);
-    let i = 0;
-    const id = window.setInterval(() => {
-      i += 1;
-      setCount(i);
-      if (i >= text.length) window.clearInterval(id);
-    }, speed);
-    return () => window.clearInterval(id);
-  }, [text, speed]);
-
-  const done = count >= text.length;
-  return (
-    <p className="summary-stream-text">
-      {text.slice(0, count)}
-      {!done && <span className="summary-stream-caret" aria-hidden="true" />}
-    </p>
-  );
-}
-
-function SummaryReveal({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button
-        className={`summary-head-btn${open ? ' open' : ''}`}
-        onClick={() => setOpen(true)}
-        aria-expanded={open}
-      >
-        <Sparkles size={16} style={{ color: '#059669' }} />
-        <span>VERIFICATION SUMMARY</span>
-        {open ? <ChevronUp size={14} className="summary-head-arrow" /> : <ChevronDown size={14} className="summary-head-arrow" />}
-      </button>
-      {open && (
-        <div className="summary-grid">
-          <TypewriterParagraph text={text} />
-        </div>
-      )}
-    </>
-  );
-}
-
-function ChainPropertyDropdown({ schedule, scheduleLong, portion, portionLong, isAdvisory, explanation }: {
-  schedule: string | null;
-  scheduleLong: boolean;
-  portion: string | null;
-  portionLong: boolean;
-  isAdvisory: boolean;
-  explanation: string | null;
-}) {
-  const [openField, setOpenField] = useState<string | null>(null);
-  const hasSchedule = !!schedule;
-  const hasPortion = !!portion;
-  const hasAdvisory = isAdvisory && !!explanation;
-  if (!hasSchedule && !hasPortion && !hasAdvisory) return null;
-
-  const toggle = (field: string) => setOpenField(prev => prev === field ? null : field);
-
-  return (
-    <div className="chain-prop-inline">
-      <div className="chain-prop-labels-row">
-        {hasSchedule && (
-          <button className="chain-prop-text-btn" onClick={() => toggle('schedule')}>
-            <span className="chain-node-label">SCHEDULE PROPERTY</span>
-            {openField === 'schedule' ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          </button>
-        )}
-        {hasPortion && (
-          <button className="chain-prop-text-btn" onClick={() => toggle('portion')}>
-            <span className="chain-node-label">CONVEYED PORTION</span>
-            {openField === 'portion' ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          </button>
-        )}
-        {hasAdvisory && (
-          <button className="chain-prop-text-btn chain-prop-text-btn-alert" onClick={() => toggle('advisory')}>
-            <AlertTriangle size={12} className="chain-alert-icon" />
-            <span className="chain-node-label">TITLE EXPOSURE IDENTIFIED</span>
-            {openField === 'advisory' ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          </button>
-        )}
-      </div>
-      {openField === 'schedule' && schedule && (
-        <div className="chain-prop-inline-content">
-          <p className={scheduleLong ? 'chain-prop-wide-value' : 'chain-node-value'}>{schedule}</p>
-        </div>
-      )}
-      {openField === 'portion' && portion && (
-        <div className="chain-prop-inline-content">
-          <p className="chain-node-value amber">{portion}</p>
-        </div>
-      )}
-      {openField === 'advisory' && explanation && (
-        <div className="chain-prop-inline-content">
-          <p className="chain-alert-inline">{explanation}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function VerifyResults({ verification, locked, onUnlock }: {
-  verification: NonNullable<CaseResults['verification']>;
-  locked?: boolean;
-  onUnlock?: () => void;
-}) {
-  const items: VerificationItem[] = verification.items || [];
-  const orderedItems = [...items].sort((a, b) => fieldRank(a.field || "") - fieldRank(b.field || ""));
-  const summary = verification.summary || {};
-  const [summaryOpen, setSummaryOpen] = useState(false);
-  const verdictStr = String(verification.verdict || summary.verdict || "N/A").toUpperCase();
-  const isClear = verdictStr === "VERIFIED" || verdictStr === "CLEAR_TITLE" || verdictStr.includes("CLEAR");
-  const isAttention = verdictStr === "NOT_VERIFIED" || verdictStr === "REQUIRED_ATTENTION" || verdictStr.includes("ATTENTION") || verdictStr.includes("DISCREPANC") || verdictStr.includes("NOT_");
-  const displayVerdict = isClear ? "ClearTitle" : isAttention ? "Attention Required" : verdictStr;
-  const heroCls = isClear ? "ok" : isAttention ? "fail" : "na";
-  const HeroIcon = isClear ? ShieldCheck : isAttention ? AlertTriangle : MinusCircle;
-  const summarySentences = summary.overall_comment ? splitSummary(String(summary.overall_comment)) : [];
-
-  return (
-    <div className="vrf">
-      <div className={`vrf-hero ${heroCls}`}>
-        <div className="vrf-hero-icon"><HeroIcon size={34} /></div>
-        <div className="vrf-hero-text">
-          <span className="vrf-hero-label">Case Verdict</span>
-          <span className="vrf-hero-verdict">{displayVerdict}</span>
-        </div>
-      </div>
-
-      {locked ? (
-        <div className="guest-lock">
-          <Lock size={22} />
-          <p><strong>Field-by-field verification is locked.</strong></p>
-          <p>Sign in to see the full verification for every field.</p>
-          {onUnlock && <button className="btn btn-primary" onClick={onUnlock}>Sign in to unlock</button>}
-        </div>
-      ) : orderedItems.length === 0 ? (
-        <div className="vr-sheet-empty">
-          {verification?.status === "error"
-            ? "Verification did not complete due to a temporary issue. Please retry."
-            : "Verification has not run yet."}
-        </div>
-      ) : (
-        <div className="vrf-fields">
-          {orderedItems.map((it, i) => <FieldRow key={i} it={it} index={i} />)}
-        </div>
-      )}
-
-      {summarySentences.length > 0 && (
-        <div className="vrf-summary">
-          {summaryOpen ? (
-            <div className="vrf-summary-body">
-              <div className="vrf-summary-title"><Sparkles size={15} /> Summary</div>
-              <TypewriterBullets sentences={summarySentences} />
-            </div>
-          ) : (
-            <button className="vrf-summary-toggle" onClick={() => setSummaryOpen(true)}>
-              <Sparkles size={15} /> View Summary
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function GuestReportPreview({ results, onSignIn, onNewCase }: {
   results: CaseResults;
@@ -1057,17 +334,12 @@ export function VerificationDashboard() {
   const [results, setResults] = useState<CaseResults | null>(null);
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
   const [cases, setCases] = useState<CaseListItem[]>([]);
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeReportTab, setActiveReportTab] = useState<'verification' | 'title-chain'>('verification');
-  const [summaryOpen, setSummaryOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const analysisTimerRef = useRef<number | null>(null);
-  const analysisWaitStartRef = useRef<number>(0);
 
   const addLog = useCallback((msg: string, cls = 'log-info') => {
     setLogs(prev => [...prev.slice(-200), { text: msg, cls }]);
@@ -1098,10 +370,8 @@ export function VerificationDashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  // Clear any pending verification-polling timer on unmount.
-  useEffect(() => () => {
-    if (analysisTimerRef.current) clearTimeout(analysisTimerRef.current);
-  }, []);
+  // Clear any pending timers on unmount.
+  useEffect(() => () => { /* polling interval cleared by stopPolling */ }, []);
 
   // Sync activeDocId with results.documents
   useEffect(() => {
@@ -1276,7 +546,6 @@ export function VerificationDashboard() {
 
   const startPolling = (caseId: string) => {
     stopPolling();
-    analysisWaitStartRef.current = 0;
     pollRef.current = setInterval(() => pollStatus(caseId), 2000);
   };
 
@@ -1295,18 +564,7 @@ export function VerificationDashboard() {
       const isTerminal = COMPLETE_STATUSES.includes(s.status) || s.status === "failed";
 
       if (isTerminal) {
-        // Docs are structured but the title-chain + verification pass is still
-        // running in the background. Keep polling until it lands (or a cap).
-        const waitForAnalysis = s.status === "complete" && !s.verification_status;
-        if (waitForAnalysis) {
-          if (!analysisWaitStartRef.current) analysisWaitStartRef.current = Date.now();
-          if (Date.now() - analysisWaitStartRef.current < ANALYSIS_WAIT_MS) {
-            updateProgress(100, "All documents structured – finishing title analysis…");
-            return;
-          }
-        }
         stopPolling();
-        analysisWaitStartRef.current = 0;
         updateProgress(100, "Pipeline complete");
         await showResults(caseId);
         loadCases();
@@ -1366,68 +624,6 @@ export function VerificationDashboard() {
     if (!caseId || searchParams.get('link')) return;
     API.link(caseId).catch(() => {});
   }, [auth, authLoading, searchParams]);
-
-  const runAnalysisTask = async (kind: 'reverify' | 'chain') => {
-    if (!currentCaseId) return;
-    setAnalyzing(true);
-    const isChain = kind === 'chain';
-    const before = isChain
-      ? results?.title_chain?.updated_at || null
-      : results?.verification?.updated_at || null;
-    const logMsg = isChain
-      ? "⏳ Title-chain rebuild queued…"
-      : "⏳ Re-verification queued…";
-    try {
-      if (isChain) await API.rerunTitleChain(currentCaseId);
-      else await API.reverify(currentCaseId);
-      addLog(logMsg, "log-info");
-    } catch (e: any) {
-      addLog(`✗ Re-run failed: ${e.message}`, "log-err");
-      setAnalyzing(false);
-      return;
-    }
-
-    const startedAt = Date.now();
-    const POLL_MS = 3000;
-    const finish = async (fresh: CaseResults | null, done: boolean) => {
-      if (fresh) setResults(fresh);
-      setAnalyzing(false);
-      loadCases();
-      addLog(
-        done
-          ? "✓ Results refreshed with latest output"
-          : "⚠ Task still running — showing latest available results",
-        done ? "log-ok" : "log-warn"
-      );
-    };
-    const tick = async () => {
-      let fresh: CaseResults | null = null;
-      try {
-        fresh = await API.getResults(currentCaseId);
-      } catch (e: any) {
-        addLog(`⚠ Checking results failed: ${e.message}`, "log-warn");
-      }
-      if (Date.now() - startedAt > ANALYSIS_WAIT_MS) {
-        await finish(fresh, false);
-        return;
-      }
-      const outcome = isChain ? fresh?.title_chain : fresh?.verification;
-      const done = !!outcome &&
-        outcome.status &&
-        (outcome.status === 'complete' || outcome.status === 'error' ||
-         outcome.status === 'skipped' || outcome.status === 'no_transactions') &&
-        outcome.updated_at && outcome.updated_at !== before;
-      if (done) {
-        await finish(fresh, true);
-        return;
-      }
-      analysisTimerRef.current = window.setTimeout(tick, POLL_MS);
-    };
-    await tick();
-  };
-
-  const runVerification = () => runAnalysisTask('reverify');
-  const runTitleChain = () => runAnalysisTask('chain');
 
   // ── Results actions ──
   const skipDoc = async (docId: string) => {
@@ -1503,14 +699,7 @@ export function VerificationDashboard() {
   }
 
   const needsAction = statusData?.needs_action || results?.needs_action || [];
-  const activeDoc = results?.documents?.find(d => String(d.doc_id) === String(activeDocId));
-const chain = results?.title_chain?.chain || [];
-const sortedChain = sortChain(chain);
-const titleChainStatus = results?.title_chain?.status;
-const titleStory = results?.title_chain?.title_story || results?.title_chain?.source?.title_story || '';
-  const verification = results?.verification || null;
   const caseInfo = results?.case;
-  const allComplete = caseInfo ? COMPLETE_STATUSES.includes(caseInfo.status) : false;
 
   return (
     <div className="ctd-root">
@@ -1603,7 +792,6 @@ const titleStory = results?.title_chain?.title_story || results?.title_chain?.so
                   <div className="sidebar-item-header">
                     <span className="case-id">{c.id}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {verdictBadge(c.verdict)}
                       <button
                         className="sidebar-delete-btn"
                         title="Delete case"
@@ -1614,7 +802,7 @@ const titleStory = results?.title_chain?.title_story || results?.title_chain?.so
                   <div className="case-meta">
                     <span>{c.completed_docs}/{c.total_docs}</span>
                     {(c.status === 'complete' || c.status === 'completed') ? (
-                      <span className="case-status-done"><CheckCircle2 size={11} style={{ verticalAlign: '-1px' }} /> Title Verification Done</span>
+                      <span className="case-status-done"><CheckCircle2 size={11} style={{ verticalAlign: '-1px' }} /> Completed</span>
                     ) : (
                       <span className={`badge ${caseBadgeClass(c.status)}`}>{c.status}</span>
                     )}
@@ -1634,7 +822,7 @@ const titleStory = results?.title_chain?.title_story || results?.title_chain?.so
             <div className="card upload-card-full">
               <div className="upload-header-meta">
                 <h1 className="upload-main-title">Upload documents</h1>
-                <p className="upload-main-sub">We extract, cross-check and verify against Kaveri records. Nothing is shared.</p>
+                <p className="upload-main-sub">We extract structured property data from your documents. Nothing is shared.</p>
               </div>
 
               <div className="upload-slots-grid">
@@ -1703,7 +891,7 @@ const titleStory = results?.title_chain?.title_story || results?.title_chain?.so
                   <X size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} /> Clear Files
                 </button>
                 <button className="btn btn-primary" disabled={slotCount('sale_deed') < 1 || slotCount('ec') < 1} onClick={startProcessing}>
-                  <Play size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} /> Verify Title
+                  <Play size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} /> Process Documents
                 </button>
               </div>
             </div>
@@ -1771,156 +959,8 @@ const titleStory = results?.title_chain?.title_story || results?.title_chain?.so
                 </div>
               )}
 
-              {/* TAB 1: VERIFICATION REPORT */}
-              {activeReportTab === 'verification' && (
-                <div className="tab-pane active">
-                  {/* Verdict Section */}
-                  <div className="verdict-banner">
-                    <div className="vr-banner-meta">
-                      <div className="vr-banner-meta-row">
-                        <div className="vr-banner-meta-lines" style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                          <div className="font-mono" style={{ fontSize: 11, color: '#94a3b8' }}>
-                            CASE ID: <strong style={{ color: '#1e293b' }}>{currentCaseId || caseInfo?.case_id || 'A722E83D'}</strong>
-                          </div>
-                          <div className="font-mono" style={{ fontSize: 11, color: '#94a3b8' }}>
-                            {fmtDate(caseInfo?.created_at || new Date().toISOString())}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '14px 0 0' }}>
-                        <span className="shimmer-effect" style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          width: 48, height: 48, borderRadius: '50%', flexShrink: 0,
-                          background: String(verification?.verdict || 'CLEAR_TITLE').toUpperCase().includes('ATTENTION')
-                            ? 'radial-gradient(circle at 30% 25%, #fee2e2, #fecaca 60%, #f87171)'
-                            : 'radial-gradient(circle at 30% 25%, #d1fae5, #a7f3d0 60%, #34d399)',
-                          boxShadow: String(verification?.verdict || 'CLEAR_TITLE').toUpperCase().includes('ATTENTION')
-                            ? '0 0 18px rgba(239,68,68,.55), inset 0 0 8px rgba(255,255,255,.5)'
-                            : '0 0 18px rgba(16,185,129,.55), inset 0 0 8px rgba(255,255,255,.5)',
-                        }}>
-                          {String(verification?.verdict || 'CLEAR_TITLE').toUpperCase().includes('ATTENTION')
-                            ? <AlertTriangle size={28} style={{ color: '#dc2626', strokeWidth: 2.25 }} />
-                            : <ShieldCheck size={28} style={{ color: '#047857', strokeWidth: 2.25 }} />}
-                        </span>
-                        <p className="vr-status-line" style={{ fontWeight: 800, letterSpacing: '.01em', lineHeight: 1.3, margin: 0, textTransform: 'uppercase',
-                          color: '#1c1917' }}>
-                          {verification?.status === "error"
-                            ? "VERIFICATION COULD NOT BE COMPLETED, PLEASE RETRY"
-                            : (verification?.summary?.status_line ||
-                              "VERIFICATION NOT COMPLETED YET")}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Verification Pipeline Nodes */}
-                  <div className="pipeline-container">
-                    <div className="pl-controls-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 24 }}>
-                      <span className="font-mono" style={{ fontSize: 12, fontWeight: 800, color: '#1e293b' }}>
-                        {verification?.items ? verification.items.filter((x: any) => String(x.status).toUpperCase() === 'VERIFIED').length : 0}/{verification?.items ? verification.items.length : 0} checks cleared
-                      </span>
-                      <button
-                        className="vr-chain-link"
-                        onClick={() => setActiveReportTab('title-chain')}
-                        title="View the full chronological title chain for this case"
-                        aria-label="Open Title Chain"
-                      >
-                        <GitMerge size={14} />
-                        <span className="vr-chain-label">View Title Chain</span>
-                        <span className="vr-chain-arrow">&gt;</span>
-                      </button>
-                    </div>
-
-                    <div className="pipeline-line"></div>
-
-                    {/* Dynamic Pipeline Items */}
-                    {verification?.items && verification.items.length > 0 ? (
-                      verification.items.map((item: any, idx: number) => (
-                        <PipelineNode key={idx} item={item} index={idx} />
-                      ))
-                    ) : (
-                      <div className="vr-sheet-empty">
-                        {verification?.status === "error"
-                          ? "Verification did not complete due to a temporary issue. Please retry — no checks were evaluated."
-                          : "Verification has not run yet. No checks have been evaluated."}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Detailed Report — headline + summary preview with expand */}
-                  {(verification?.summary?.summary_text || verification?.summary?.overall_comment || verification?.summary?.headline) && (
-                    <div style={{ marginTop: 24, marginBottom: 28 }}>
-                      {verification?.summary?.headline && (
-                        <p style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', margin: '0 0 8px', lineHeight: 1.55 }}>
-                          {verification.summary.headline}
-                        </p>
-                      )}
-                      <p style={{
-                        fontSize: 14, color: '#475569', lineHeight: 1.8, margin: 0, whiteSpace: 'pre-line',
-                        overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical',
-                        WebkitLineClamp: summaryOpen ? undefined : 2,
-                      }}>
-                        {verification?.summary?.summary_text || verification?.summary?.overall_comment}
-                      </p>
-                      <button
-                        onClick={() => setSummaryOpen(o => !o)}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 4,
-                          marginTop: 10, padding: 0, border: 'none', background: 'transparent',
-                          cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#2563eb',
-                        }}
-                      >
-                        {summaryOpen ? 'Hide' : 'View Full Report'}
-                        <span style={{ fontSize: 10, transition: 'transform .15s', transform: summaryOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>▼</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Re-run Verification + Download Report Controls */}
-                  <div className="pl-actions-row" style={{ marginTop: 24, marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12 }}>
-                    {verification?.status !== "error" && verification?.items?.length ? (
-                    <button
-                      className="btn btn-secondary"
-                      disabled={!allComplete}
-                      onClick={async () => {
-                        const cid = currentCaseId || caseInfo?.case_id;
-                        if (!cid) return;
-                        try {
-                          const headers: Record<string, string> = {};
-                          const token = getToken();
-                          if (token) headers['Authorization'] = `Bearer ${token}`;
-                          const r = await fetch(`/api/results/${cid}/report/pdf`, { headers });
-                          if (!r.ok) throw new Error('Failed to generate report');
-                          const blob = await r.blob();
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement('a');
-                          a.href = url;
-                          a.download = `title-report-${cid}.pdf`;
-                          document.body.appendChild(a);
-                          a.click();
-                          a.remove();
-                          URL.revokeObjectURL(url);
-                        } catch (e: any) {
-                          alert('Could not generate report. ' + (e.message || ''));
-                        }
-                      }}
-                    >
-                      <Download size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                      Download Report
-                    </button>
-                    ) : null}
-                    <button
-                      className="btn btn-primary"
-                      disabled={!allComplete || analyzing}
-                      onClick={runVerification}
-                      title="Re-run only the verification pass (title chain is left as-is)"
-                    >
-                      <RefreshCw size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                      {analyzing ? 'Analyzing…' : 'Re Run Verification'}
-                    </button>
-                  </div>
-
-                  {/* Document Extractions — bottom of verification report */}
+              {/* Extracted document data */}
+              <div className="tab-pane active">
                   <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 24, marginTop: 8 }}>
                     <div style={{ marginBottom: 16 }}>
                       <span className="font-mono" style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
@@ -2010,85 +1050,7 @@ const titleStory = results?.title_chain?.title_story || results?.title_chain?.so
                     )}
                   </div>
 
-                  {/* Required documents — generated by the LLM during title-chain build */}
-                  {(() => {
-                    const reqDocs = results?.title_chain?.source?.required_documents;
-                    if (!Array.isArray(reqDocs) || reqDocs.length === 0) return null;
-                    return (
-                      <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 24, marginTop: 24 }}>
-                        <p style={{ color: '#1c1917', fontSize: 16, fontWeight: 500, marginBottom: 12, textAlign: 'left' }}>
-                          The above results are generated only based on the documents uploaded, and the user
-                          still needs to verify these documents to ensure clearTitle.
-                        </p>
-                        <div style={{ marginBottom: 8 }}>
-                          <span className="font-mono" style={{ fontSize: 15, fontWeight: 700, color: '#111827', letterSpacing: '0.04em', textTransform: 'none' }}>
-                            DOCUMENTS REQUIRED FOR COMPLETE VERIFICATION
-                          </span>
-                        </div>
-                        <div style={{ overflowX: 'auto' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                            <thead>
-                              <tr>
-                                {['Date', 'Instrument / Event', 'Parties / Effect', 'Required Documents'].map(h => (
-                                  <th key={h} style={{ textAlign: 'left', padding: '8px 10px', borderBottom: '2px solid #e2e8f0', fontSize: 11, letterSpacing: '0.06em', color: '#6b7280', whiteSpace: 'nowrap' }}>
-                                    {h}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {reqDocs.map((r, i) => (
-                                <tr key={`${i}-${r.date}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                                  <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: '#44403c', verticalAlign: 'top' }}>{r.date || '—'}</td>
-                                  <td style={{ padding: '8px 10px', fontWeight: 600, color: '#292524', verticalAlign: 'top' }}>{r.instrument_event || '—'}</td>
-                                  <td style={{ padding: '8px 10px', color: '#57534e', verticalAlign: 'top' }}>{r.parties_effect || '—'}</td>
-                                  <td style={{ padding: '8px 10px', color: '#b45309', verticalAlign: 'top' }}>{r.required_docs || '—'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })()}
                 </div>
-              )}
-
-              {/* TAB 2: TITLE CHAIN */}
-              {activeReportTab === 'title-chain' && (
-                <div className="tab-pane active">
-                  <div className="chain-page-head">
-                    <div className="chain-page-head-left">
-                      <span className="chain-kicker">TITLE CHAIN • CASE {currentCaseId || caseInfo?.case_id || 'A722E83D'}</span>
-                      <h1 className="chain-page-title">Chain of title</h1>
-                      <p className="chain-page-sub">Chronological property devolution, ownership transitions, and adverse encumbrance tracking.</p>
-                    </div>
-                    <div className="chain-page-head-right">
-                      <button
-                        className="chain-rerun-btn"
-                        disabled={!allComplete || analyzing}
-                        onClick={runTitleChain}
-                        title="Re-run only the title chain build (verification is left as-is)"
-                      >
-                        <RefreshCw size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                        {analyzing ? 'Rebuilding…' : 'Re Run Title Chain'}
-                      </button>
-                      <button className="chain-back-btn" onClick={() => setActiveReportTab('verification')}>
-                        <ArrowLeft size={14} /> Back to Report
-                      </button>
-                      <span className="chain-milestones">
-                        <span className="chain-milestones-dot" />
-                        {sortedChain.length} TRANSACTIONS LINKED
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Connected Chronological Chain Nodes */}
-                  <ChainTimeline chain={chain} status={titleChainStatus} titleStory={titleStory} />
-                </div>
-              )}
-
-              {/* TAB 3: DOCS EXTRACTIONS */}
               </>
               )}
             </div>

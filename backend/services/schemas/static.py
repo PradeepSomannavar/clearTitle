@@ -1,4 +1,4 @@
-﻿"""Per-document JSON schemas keyed by document type (extraction-only)."""
+"""Per-document JSON schemas keyed by document type (extraction-only)."""
 # â”€â”€ Schema definitions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 

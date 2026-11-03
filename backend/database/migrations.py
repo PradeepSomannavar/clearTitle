@@ -3,17 +3,13 @@ DDL + table bootstrap for the simplified schema.
 
 Tables:
   users                 — auth accounts
-  cases                 — pipeline cases (user-scoped)
-  documents             — per-doc extraction state (no per-doc verification)
-  title_chains          — LLM-built title chain for a case
-  verification_results  — LLM field-verification results for a case
+  cases                 — pipeline cases (user-scoped, incl. pipeline_logs)
+  documents             — per-doc extraction state
 
 Obsolete tables (cross_doc_verifications, human_feedback, llm_calls and the
 daily_cost_summary view) are dropped best-effort so an existing DB upgrades
 cleanly, as are abandoned columns: documents.verification_notes,
-documents.stage_started_at, documents.stage_completed_at, documents.trace_id,
-and the unused token/cost/metadata columns on title_chains and
-verification_results that are no longer surfaced to any consumer.
+documents.stage_started_at, documents.stage_completed_at, documents.trace_id.
 """
 
 from __future__ import annotations
@@ -40,8 +36,6 @@ CREATE TABLE IF NOT EXISTS cases (
     total_docs INT NOT NULL DEFAULT 0,
     completed_docs INT NOT NULL DEFAULT 0,
     failed_docs INT NOT NULL DEFAULT 0,
-    verification_status VARCHAR(32) DEFAULT NULL,
-    verdict VARCHAR(32) DEFAULT NULL,
     pipeline_logs JSON NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -79,33 +73,6 @@ CREATE TABLE IF NOT EXISTS documents (
     KEY idx_status (status),
     KEY idx_document_type (document_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS title_chains (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    case_id VARCHAR(32) NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    chain JSON NULL,
-    source JSON NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_case_id (case_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS verification_results (
-    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    case_id VARCHAR(32) NOT NULL,
-    status VARCHAR(32) NOT NULL DEFAULT 'pending',
-    verdict VARCHAR(32) DEFAULT NULL,
-    summary JSON NULL,
-    items JSON NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_case_id (case_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 """
 
 
@@ -114,6 +81,8 @@ DROP_OBSOLETE_SQL = [
     "DROP TABLE IF EXISTS llm_calls",
     "DROP TABLE IF EXISTS human_feedback",
     "DROP TABLE IF EXISTS cross_doc_verifications",
+    "DROP TABLE IF EXISTS title_chains",
+    "DROP TABLE IF EXISTS verification_results",
 ]
 
 
@@ -159,19 +128,7 @@ def ensure_tables():
             "ALTER TABLE documents DROP COLUMN stage_started_at",
             "ALTER TABLE documents DROP COLUMN stage_completed_at",
             "ALTER TABLE documents DROP COLUMN trace_id",
-            "ALTER TABLE title_chains DROP COLUMN sale_deed_doc_id",
-            "ALTER TABLE title_chains DROP COLUMN ec_doc_id",
-            "ALTER TABLE title_chains DROP COLUMN input_tokens",
-            "ALTER TABLE title_chains DROP COLUMN output_tokens",
-            "ALTER TABLE title_chains DROP COLUMN latency_ms",
-            "ALTER TABLE title_chains DROP COLUMN cost_usd",
-            "ALTER TABLE title_chains DROP COLUMN model_used",
             "ALTER TABLE documents DROP COLUMN raw_ocr_path",
-            "ALTER TABLE verification_results DROP COLUMN input_tokens",
-            "ALTER TABLE verification_results DROP COLUMN output_tokens",
-            "ALTER TABLE verification_results DROP COLUMN latency_ms",
-            "ALTER TABLE verification_results DROP COLUMN cost_usd",
-            "ALTER TABLE verification_results DROP COLUMN model_used",
         ]:
             try:
                 cursor.execute(sql)

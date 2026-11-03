@@ -63,16 +63,13 @@ def set_case_status(*, case_id: str, status: str) -> None:
 
 
 def upload_docs_reset(*, case_id: str, new_total: int) -> None:
-    """Bump total_docs and invalidate title-chain/verification when more docs are uploaded."""
+    """Bump total_docs and reset case status when more docs are uploaded."""
     with _get_conn() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "UPDATE cases SET total_docs = %s, status = 'uploaded', "
-            "verification_status = NULL, verdict = NULL WHERE id = %s",
+            "UPDATE cases SET total_docs = %s, status = 'uploaded' WHERE id = %s",
             (new_total, case_id)
         )
-        cursor.execute("DELETE FROM title_chains WHERE case_id = %s", (case_id,))
-        cursor.execute("DELETE FROM verification_results WHERE case_id = %s", (case_id,))
         conn.commit()
 
 
@@ -82,14 +79,14 @@ def list_cases(user_id: str | None = None, limit: int = 50, offset: int = 0) -> 
         if user_id:
             cursor.execute(
                 "SELECT id, status, total_docs, completed_docs, failed_docs, "
-                "verification_status, verdict, created_at, updated_at "
+                "created_at, updated_at "
                 "FROM cases WHERE user_id = %s ORDER BY created_at DESC LIMIT %s OFFSET %s",
                 (user_id, limit, offset),
             )
         else:
             cursor.execute(
                 "SELECT id, status, total_docs, completed_docs, failed_docs, "
-                "verification_status, verdict, created_at, updated_at "
+                "created_at, updated_at "
                 "FROM cases ORDER BY created_at DESC LIMIT %s OFFSET %s",
                 (limit, offset),
             )
@@ -121,17 +118,6 @@ def set_case_owner(*, case_id: str, user_id: str) -> bool:
         return cursor.rowcount > 0
 
 
-def set_case_verification_status(*, case_id: str, verification_status: str, verdict: str) -> None:
-    """Record the outcome of the title-chain + verification pass."""
-    with _get_conn() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE cases SET verification_status = %s, verdict = %s WHERE id = %s",
-            (verification_status, verdict, case_id),
-        )
-        conn.commit()
-
-
 def recompute_case_status(case_id: str) -> None:
     update_case_status(case_id=case_id)
 
@@ -142,8 +128,6 @@ def delete_case(case_id: str) -> None:
         cursor = conn.cursor()
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0")
         for table in (
-            "title_chains",
-            "verification_results",
             "documents",
         ):
             try:
@@ -164,7 +148,7 @@ def get_case_status_payload(case_id: str) -> dict:
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
             "SELECT status, total_docs, completed_docs, failed_docs, "
-            "verification_status, verdict, pipeline_logs "
+            "pipeline_logs "
             "FROM cases WHERE id = %s",
             (case_id,)
         )
@@ -261,26 +245,12 @@ def get_case_status_payload(case_id: str) -> dict:
     else:
         progress = 0
 
-    # 3. Fetch title chain status
-    title_chain_status = "pending"
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT status FROM title_chains WHERE case_id = %s", (case_id,))
-        tc_row = cursor.fetchone()
-        if tc_row:
-            title_chain_status = tc_row[0]
-    except Exception:
-        pass
-
     return {
         "case_id": case_id,
         "status": case_status,
         "completed_docs": case_row["completed_docs"],
         "total_docs": case_row["total_docs"],
         "failed_docs": case_row["failed_docs"],
-        "verification_status": case_row.get("verification_status"),
-        "verdict": case_row.get("verdict"),
-        "title_chain_status": title_chain_status,
         "files": files,
         "results": results,
         "errors": errors,

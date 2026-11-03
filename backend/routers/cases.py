@@ -456,9 +456,7 @@ async def skip_document_endpoint(
         if d.get("status") in ("failed", "classification_failed")
     ]
     if not unresolved:
-        from backend.workers.title_chain_tasks import run_case_analysis_task
-        run_case_analysis_task.apply_async(args=[case_id])
-        append_log(case_id, "── All documents resolved — running title chain + verification ──")
+        append_log(case_id, "── All documents resolved ──")
 
     return {"case_id": case_id, "doc_id": doc_id, "status": "skipped"}
 

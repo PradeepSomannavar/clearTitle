@@ -9,7 +9,6 @@ celery_app = Celery(
     include=[
         "backend.workers.finalize",
         "backend.workers.tasks",
-        "backend.workers.title_chain_tasks",
     ],
 )
 

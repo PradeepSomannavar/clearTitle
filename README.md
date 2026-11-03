@@ -1,6 +1,6 @@
-# clearTitle — AI Property Title Verification
+# clearTitle — AI Property Document Extraction
 
-An end-to-end property title verification platform for **Karnataka property documents**. clearTitle extracts structured JSON from scanned PDFs (Sarvam Vision OCR), runs single-pass LLM structuring with a Gemini/Groq fallback chain, builds a **title chain** and runs **cross-document verification** on every case, and presents everything in a warm, premium dashboard — with a landing page that explains the product.
+An end-to-end document extraction platform for **Karnataka property documents**. clearTitle extracts structured JSON from scanned PDFs (Sarvam Vision OCR), runs single-pass LLM structuring with a Gemini/Groq fallback chain, and presents everything in a warm, premium dashboard — with a landing page that explains the product.
 
 ---
 
@@ -10,7 +10,7 @@ An end-to-end property title verification platform for **Karnataka property docu
 flowchart TD
     subgraph Frontend["Frontend Layer (React SPA)"]
         UI["clearTitle SPA\nReact 19 + Vite + TypeScript\nLanding page (/) + Dashboard (/#/app)"]
-        DASH["Verification Dashboard\nUpload . Processing . Results . Verify . History"]
+        DASH["Extraction Dashboard\nUpload . Processing . Results . History"]
         AUTH["Auth Screen\nRegister / Login / Link guest case"]
         HOME["Landing sections\nHero . Pipeline . Audit demo . FAQ"]
     end
@@ -18,11 +18,11 @@ flowchart TD
     subgraph API["API Gateway Layer (FastAPI)"]
         R_AUTH["Auth Router\n/api/auth/register . /login . /me"]
         R_CASES["Cases Router\n/api/upload . /api/cases . /api/process\n/api/status . /api/retry\nreplace / skip / case upload / link"]
-        R_RESULTS["Results Router\n/api/results/{id} . /api/results/{id}/analyze\n/api/results/{id}/report/pdf\nGET /api/case/{id}/doc/{id}/pdf"]
+        R_RESULTS["Results Router\n/api/results/{id}\nGET /api/results/{id}/ocr\nGET /api/case/{id}/doc/{id}/pdf"]
     end
 
     subgraph Orchestration["Async Task Queue"]
-        CELERY["Celery Workers\nbackend/workers/* (stages, finalize, title_chain_tasks)"]
+        CELERY["Celery Workers\nbackend/workers/* (tasks, finalize)"]
         REDIS_BROKER["Redis Broker / State Store"]
     end
 
@@ -35,14 +35,12 @@ flowchart TD
         PERSIST["6 Persist\n(save JSON + tokens/cost to MySQL)"]
     end
 
-    subgraph Analysis["Case-Level Analysis (after finalize)"]
-        FINALIZE["Finalize\n(recompute status + queue analysis)"]
-        TITLE["Title Chain\nservices/title_chain.py"]
-        VERIFY["Verification\nservices/verify.py"]
+    subgraph Analysis["Case-Level Finalize"]
+        FINALIZE["Finalize\n(recompute case status:\ncomplete / partial / failed)\nRelease pipeline lock"]
     end
 
     subgraph Storage["Storage Layer"]
-        MYSQL["MySQL\nusers, cases, documents,\ntitle_chains, verification_results"]
+        MYSQL["MySQL\nusers, cases, documents"]
         REDIS["Redis State Store"]
         FS["File System\noutputs/"]
     end
@@ -53,35 +51,30 @@ flowchart TD
     CELERY -->|"Reads/writes status"| REDIS
     CELERY --> PREPROC --> OCR --> MERGE --> CLASSIFY --> STRUCTURE --> PERSIST
     PERSIST -->|"chord"| FINALIZE
-    FINALIZE --> TITLE --> VERIFY
     STRUCTURE -->|"Saves structured data"| MYSQL
-    TITLE -->|"Saves title chain"| MYSQL
-    VERIFY -->|"Saves verification + verdict"| MYSQL
+    FINALIZE -->|"Recomputes status"| MYSQL
 ```
 
 ### Key Components
 
 | Component | Technology | Description |
 |---|---|---|
-| **Frontend** | React 19, Vite 6, TypeScript, Tailwind CSS 4 | Landing page + admin dashboard with AI pipeline view, results, title-chain timeline, verification table, and case history |
-| **API Layer** | FastAPI, Uvicorn | Async REST API with JWT auth for cases, documents, results, and analysis |
-| **Async Tasks** | Celery, Redis | Idempotent background stages — preprocess, OCR, merge, classify, structure, persist, finalize, title-chain, verify |
+| **Frontend** | React 19, Vite 6, TypeScript, Tailwind CSS 4 | Landing page + extraction dashboard with AI pipeline view, results, structured-data cards, and case history |
+| **API Layer** | FastAPI, Uvicorn | Async REST API with JWT auth for cases, documents, and results |
+| **Async Tasks** | Celery, Redis | Idempotent background stages — preprocess, OCR, merge, classify, structure, persist, finalize |
 | **OCR Service** | Sarvam AI Vision OCR | High-accuracy OCR for mixed English/Kannada text; chunks >10-page PDFs with overlap |
 | **Structuring** | Gemini 2.5 Flash (primary) / Groq (fallback) | Single-pass JSON field extraction per document type |
-| **Analysis** | Gemini 2.5 Flash | Title-chain build + cross-document verification per case |
-| **Relational DB** | MySQL | Unified tables for users, cases, documents, title chains, and verification results |
+| **Relational DB** | MySQL | Unified tables for users, cases, and documents |
 
 ---
 
-## Verification Features
+## Extraction Features
 
-- **Title Chain** — every EC ledger transaction is classified (`THE_SD`, `PREDECESSOR_TITLE`, `SUBSEQUENT_TRANSFER`, `DIVERGENT_BRANCH`, `ENCUMBRANCE`, `UNRELATED`), sorted chronologically, and merged into a timeline.
-- **Cross-Document Verification** — a field-by-field comparison (property identifiers, dates, parties, consideration) between the Sale Deed and the EC ledger, with a deterministic `VERIFIED` / `NOT_VERIFIED` / `N/A` verdict.
-- **Khata-aware** — KHATA extracts get an A-Khata/B-Khata/authorized hint and khata-fee verification fields, plus a themed structured view (holders, property details, tax dues, certification).
-- **EC page-split merge** — a ledger row split across consecutive pages (missing both date and registration reference) is recombined before verification/title-chain, so one transaction is never counted twice.
-- **Self-Service Re-run** — every completed case can re-run verification and the title chain independently (`POST /api/results/{case_id}/verify`, `POST /api/results/{case_id}/title-chain`), or both at once (`POST /api/results/{case_id}/analyze`).
-- **PDF Title Verification Report** — generates a professional legal-style PDF report per case (`GET /api/results/{case_id}/report/pdf`).
-- **No misleading success on failure** — if verification can't complete (e.g. a temporary LLM outage), the case is marked `error`, the dashboard shows a clear "please retry" state with no fabricated green checks, and the PDF report is only downloadable once verification has actually produced results.
+- **6-stage document pipeline** — preprocess→OCR→merge→classify→structure→persist, each stage its own idempotent Celery task.
+- **Per-doc structured JSON** — every supported document type yields its own strict schema, viewable per document in the dashboard.
+- **EC page-split merge** — a ledger row split across consecutive pages is recombined during persist-stage normalisation, so one transaction is never duplicated.
+- **Cost tracking** — tokens, latency and per-doc cost are stored with every structured result.
+- **No misleading success on failure** — if a stage fails the case is marked `partial`/`failed`, the dashboard shows a clear retry state, and results only reflect documents that truly structured.
 - **Idempotent Stages** — Celery `acks_late` + per-stage idempotency guards make re-runs and retries safe.
 - **Human-in-the-Loop** — failed or unclassified documents can be replaced or skipped; retries resume the pipeline for just those documents.
 
@@ -119,10 +112,6 @@ Open `.env` and fill in the API keys (everything else works as-is):
 SARVAM_API_KEY=your_key_here
 GROQ_API_KEY=your_key_here
 GEMINI_API_KEY=your_key_here
-
-# optional — only needed to run the local OCR comparison probes
-# (sarvam_digitize_probe / sarvam_extract_probe / bodhan_ocr_probe)
-BODHAN_API_KEY=your_bodhan_key_here
 ```
 
 ### 2. Start everything
@@ -321,14 +310,11 @@ docker rm chk
 | `POST` | `/api/case/{case_id}/doc/{doc_id}/skip` | Mark a document as skipped |
 | `DELETE` | `/api/case/{case_id}` | Delete a single case (MySQL + files) |
 
-### Results & Analysis
+### Results
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/results/{case_id}` | Full results payload: case info, documents + structured JSON, title chain, verification |
-| `POST` | `/api/results/{case_id}/analyze` | (Re)run title-chain + verification for a completed case |
-| `POST` | `/api/results/{case_id}/verify` | Re-run only the verification pass |
-| `POST` | `/api/results/{case_id}/title-chain` | Re-run only the title-chain build |
-| `GET` | `/api/results/{case_id}/report/pdf` | Download a PDF Title Verification Report (only available once verification completes) |
+| `GET` | `/api/results/{case_id}` | Results payload: case info + every document's structured JSON |
+| `GET` | `/api/results/{case_id}/ocr` | Raw OCR `full_text` for every document in a case |
 | `GET` | `/api/case/{case_id}/doc/{doc_id}/pdf` | Serve original PDF (authenticated, opens in new tab) |
 
 ### Misc
@@ -364,11 +350,9 @@ DOC_003 --> preprocess --> ocr --> merge --> classify --> structure --> persist 
 
 | Stage | Work |
 |---|---|
-| **Finalize** | Recompute case status (`complete` / `partial` / `failed`), release the pipeline lock, and queue the analysis only when every document structured |
-| **Title chain** | One Gemini call — classify every EC ledger entry and merge it onto the SD's property schedule |
-| **Verification** | One Gemini call — field-by-field SD vs EC comparison -> deterministic `VERIFIED` / `NOT_VERIFIED` / `N/A` verdict |
+| **Finalize** | Recompute case status (`complete` / `partial` / `failed`), write the completion log, and release the pipeline lock |
 
-The dashboard polls `/api/status/{case_id}` through the analysis phase and only shows the final report once `verification_status` is set.
+The dashboard polls `/api/status/{case_id}` and shows the results view once the case reaches a terminal status.
 
 ---
 
@@ -404,9 +388,6 @@ clearTitle/
 │   │   ├── orchestrator.py         #   builds Celery chains + chords
 │   │   ├── classifier.py           #   keyword-based doc-type detection
 │   │   ├── extract.py              #   OCR retry + LLM fallback-chain driver
-│   │   ├── title_chain.py          #   build title tree from SD + EC ledger
-│   │   ├── verify.py               #   cross-document verification pass
-│   │   ├── report.py               #   PDF title verification report renderer
 │   │   ├── results.py              #   assemble /api/results payload
 │   │   ├── extraction_prompts.py   #   prompt builders (loads from backend/prompts/)
 │   │   ├── auth.py                 #   JWT + bcrypt helpers
@@ -419,27 +400,26 @@ clearTitle/
 │   │   ├── stages.py               #   the actual stage logic (preprocess->persist)
 │   │   ├── stage_adapter.py        #   task -> stage.invoke adapter
 │   │   ├── idempotency.py          #   skip-already-done guard
-│   │   ├── finalize.py             #   chord callback: recompute status + queue analysis
-│   │   ├── title_chain_tasks.py    #   build_title_chain_task + verify_case_task
+│   │   ├── finalize.py             #   chord callback: recompute case status
 │   │   └── context.py              #   StageContext (dependencies handed to stages)
 │   │
 │   ├── domain/state_machine.py     # Stage enum + status->stage mapping (pure logic)
 │   │
 │   ├── integrations/               # Adapters to external/plumbing systems
 │   │   ├── llm/                    #   gemini_client, gemini_executor, groq_executor,
-│   │   │                           #   model_router, rate_limiter, analysis_executor
+│   │   │                           #   model_router, rate_limiter
 │   │   ├── ocr/                    #   sarvam_client, ocr_merger, preprocessor
 │   │   ├── redis/                  #   client, state_store, lock
-│   │   └── storage/                #   file_utils, file_service
+│   │   └── storage/                #   file_utils
 │   │
 │   ├── database/
 │   │   ├── connection.py           #  MySQL connection helper
 │   │   ├── migrations.py           #  DDL bootstrap (runs at startup)
-│   │   └── repositories/           #  SQL access (case, document, title_chain,
-│   │                               #  verification, verification_results, user)
+│   │   └── repositories/           #  SQL access (case, document, pipeline logs, user)
 │   │
 │   ├── shared/constants.py         # doc-type + status string constants
 │   ├── shared/ec_ledger.py         # EC page-split row recombinator (read-boundary fix)
+│   ├── shared/helpers.py           # LLM output merge helpers
 │   └── tests/                      # pytest suite
 │
 ├── frontend/                       # React SPA (Vite)
@@ -475,9 +455,6 @@ All LLM prompts are versioned text files in `backend/prompts/`. Edit the `.txt` 
 
 | File | Used by | Purpose |
 |---|---|---|
-| `verification.txt` | `services/verify.py` | SD vs EC field-by-field cross-check |
-| `title_chain.txt` | `services/title_chain.py` | Title tree construction from SD + EC ledger |
-| `analysis_system.txt` | `integrations/llm/analysis_executor.py` | Gemini system instruction for analysis tasks |
 | `extraction_contract.txt` | `services/extraction_prompts.py` | Shared extraction rules (OUTPUT_QUALITY_CONTRACT) |
 | `gemini_system.txt` | `services/extraction_prompts.py` | Gemini extraction system template |
 | `gemini_user.txt` | `services/extraction_prompts.py` | Gemini extraction user template |

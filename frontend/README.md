@@ -29,9 +29,9 @@ clearTitle automates Indian property due diligence end-to-end — from raw Kanna
 
 | Layer   | Technology |
 | ------- | ---------- |
-| Frontend| React 19, Vite 6, TypeScript, Tailwind CSS 4, lucide-react, motion |
-| Backend | Express (dev server), tsx |
-| AI      | `@google/genai` (Vision-Language API) |
+| Frontend| React 19, Vite 6, TypeScript, Tailwind CSS 4, lucide-react |
+| Dev host| Express + tsx dev server (static/Vite middlewares only — no API routes) |
+| AI      | Gemini 2.5 Flash / Groq fallback — called by the FastAPI backend |
 | 3D/UI   | three.js (interactive hero background) |
 
 ## Getting Started
@@ -50,7 +50,7 @@ clearTitle automates Indian property due diligence end-to-end — from raw Kanna
    cp .env.example .env
    ```
 
-   - `AI_API_KEY` — your VLM AI API key. Without it the audit endpoint returns an intelligent mock report so you can still explore the UI.
+   - `FASTAPI_URL` — where the FastAPI backend lives (default `http://localhost:8000`). All real API traffic is proxied there.
 
 3. Run the app (dev server with API + Vite HMR on port 3000):
 
@@ -71,9 +71,10 @@ clearTitle automates Indian property due diligence end-to-end — from raw Kanna
 
 ## API
 
-- `GET /api/health` — service health check
-- `POST /api/verify-property` — runs an AI title audit on provided document text and returns a structured report (trust score, red flags, chain of title, blockchain certificate hash). Falls back to a mock report when `AI_API_KEY` is unset.
-- `GET /api/cases`, `POST /api/upload`, `GET /api/status/{case_id}`, … — dashboard endpoints (see the root `README.md`)
+The Express server hosts **no API routes** — it is purely a dev/static host.
+All endpoints live in the FastAPI backend (see the root `README.md`); in
+development Vite proxies `/api`, `/auth`, `/health` and `/static` there
+automatically (`.env.example` → `FASTAPI_URL`).
 
 ## Project Structure
 
@@ -83,12 +84,12 @@ clearTitle automates Indian property due diligence end-to-end — from raw Kanna
 │   ├── dashboard/       # Verification Dashboard — upload, results, report, history
 │   ├── api/backend.ts   # API client used by the dashboard
 │   ├── data/            # Static landing-page content
-│   ├── types.ts         # Shared TypeScript types
+│   ├── pages/           # Home, How-It-Works, Pricing, Login, OCR viewer
 │   ├── App.tsx          # Routes: homepage + /#/app dashboard
 │   └── index.css        # Tailwind + brand fonts/gradients
 ├── public/              # Favicon & static assets
 ├── src/assets/          # Brand assets (logo PNG)
-├── server.ts            # Express + AI audit API + Vite/static serving
+├── server.ts            # Express dev server (Vite middleware / static serving)
 ├── index.html
 └── vite.config.ts
 ```
