@@ -4,12 +4,14 @@ DDL + table bootstrap for the simplified schema.
 Tables:
   users                 — auth accounts
   cases                 — pipeline cases (user-scoped, incl. pipeline_logs)
-  documents             — per-doc extraction state
+  documents             — per-doc OCR pipeline state
 
 Obsolete tables (cross_doc_verifications, human_feedback, llm_calls and the
 daily_cost_summary view) are dropped best-effort so an existing DB upgrades
 cleanly, as are abandoned columns: documents.verification_notes,
-documents.stage_started_at, documents.stage_completed_at, documents.trace_id.
+documents.stage_started_at, documents.stage_completed_at, documents.trace_id,
+and the structured-data/token/cost columns that were part of the removed
+LLM extraction layer.
 """
 
 from __future__ import annotations
@@ -55,13 +57,7 @@ CREATE TABLE IF NOT EXISTS documents (
     document_type VARCHAR(128) NOT NULL DEFAULT '',
     page_count INT NOT NULL DEFAULT 0,
     status VARCHAR(32) NOT NULL DEFAULT 'uploaded',
-    structured_data JSON NULL,
     file_paths JSON NULL,
-    input_tokens INT NOT NULL DEFAULT 0,
-    output_tokens INT NOT NULL DEFAULT 0,
-    latency_ms INT NOT NULL DEFAULT 0,
-    cost_usd DECIMAL(10,6) NOT NULL DEFAULT 0,
-    model_used VARCHAR(64) DEFAULT '',
     error TEXT NULL,
     retry_count INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -129,6 +125,12 @@ def ensure_tables():
             "ALTER TABLE documents DROP COLUMN stage_completed_at",
             "ALTER TABLE documents DROP COLUMN trace_id",
             "ALTER TABLE documents DROP COLUMN raw_ocr_path",
+            "ALTER TABLE documents DROP COLUMN structured_data",
+            "ALTER TABLE documents DROP COLUMN input_tokens",
+            "ALTER TABLE documents DROP COLUMN output_tokens",
+            "ALTER TABLE documents DROP COLUMN latency_ms",
+            "ALTER TABLE documents DROP COLUMN cost_usd",
+            "ALTER TABLE documents DROP COLUMN model_used",
         ]:
             try:
                 cursor.execute(sql)

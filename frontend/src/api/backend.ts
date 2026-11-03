@@ -12,8 +12,6 @@ export function setToken(token: string | null): void {
 export interface HealthStatus {
   status: string;
   sarvam_key: boolean;
-  groq_key: boolean;
-  gemini_key: boolean;
 }
 
 export interface AuthUser {
@@ -45,7 +43,6 @@ export interface StatusResponse {
   total_docs?: number;
   failed_docs?: number;
   log?: string[];
-  results?: any[];
   errors?: any[];
   needs_action?: any[];
   files?: { doc_id: string; original_name: string; status: string; document_type: string }[];
@@ -81,20 +78,6 @@ export interface OcrTextResponse {
   documents: OcrDocText[];
 }
 
-export interface CaseResults {
-  case: {
-    case_id: string;
-    status: string;
-    total_docs: number;
-    completed_docs: number;
-    failed_docs: number;
-    created_at?: string;
-    updated_at?: string;
-  };
-  documents: any[];
-  needs_action?: any[];
-}
-
 async function apiError(response: Response, fallback = "Request failed"): Promise<string> {
   const text = await response.text();
   if (!text) return fallback;
@@ -125,10 +108,10 @@ export const API = {
   async health(): Promise<HealthStatus> {
     try {
       const r = await fetch("/health");
-      if (!r.ok) return { status: "error", sarvam_key: false, groq_key: false, gemini_key: false };
+      if (!r.ok) return { status: "error", sarvam_key: false };
       return r.json();
     } catch {
-      return { status: "error", sarvam_key: false, groq_key: false, gemini_key: false };
+      return { status: "error", sarvam_key: false };
     }
   },
 
@@ -205,10 +188,6 @@ export const API = {
     } catch {
       return { cases: [], total: 0 };
     }
-  },
-
-  async getResults(caseId: string): Promise<CaseResults> {
-    return request<CaseResults>(`/api/results/${caseId}`);
   },
 
   async getOcr(caseId: string): Promise<OcrTextResponse> {

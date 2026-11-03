@@ -29,7 +29,7 @@ def update_case_status(*, case_id: str) -> None:
         cursor.execute("""
             UPDATE cases SET
                 completed_docs = (SELECT COUNT(*) FROM documents
-                    WHERE case_id = %s AND status IN ('structured', 'skipped')),
+                    WHERE case_id = %s AND status IN ('classified', 'skipped')),
                 failed_docs = (SELECT COUNT(*) FROM documents
                     WHERE case_id = %s AND status IN ('failed','classification_failed')),
                 status = CASE
@@ -37,7 +37,7 @@ def update_case_status(*, case_id: str) -> None:
                         WHERE case_id = %s AND status IN ('failed','classification_failed')) > 0
                     THEN 'partial'
                     WHEN (SELECT COUNT(*) FROM documents
-                        WHERE case_id = %s AND status IN ('structured','skipped')) = total_docs
+                        WHERE case_id = %s AND status IN ('classified','skipped')) = total_docs
                     THEN 'complete'
                     ELSE 'processing'
                 END
@@ -47,7 +47,7 @@ def update_case_status(*, case_id: str) -> None:
 
 
 def set_case_status(*, case_id: str, status: str) -> None:
-    """Direct case-status write (Phase 3: MySQL is the source of truth).
+    """Direct case-status write (MySQL is the source of truth).
 
     Used for transient states (e.g. 'processing', 'failed') that are set when a
     pipeline starts/aborts; final status transitions still go through
@@ -158,8 +158,7 @@ def get_case_status_payload(case_id: str) -> dict:
 
         # 2. Fetch documents
         cursor.execute(
-            "SELECT doc_id, filename, document_type, status, structured_data, file_paths, error, "
-            "page_count, input_tokens, output_tokens, latency_ms, cost_usd, model_used "
+            "SELECT doc_id, filename, document_type, status, file_paths, error, page_count "
             "FROM documents WHERE case_id = %s ORDER BY doc_index ASC",
             (case_id,)
         )
@@ -175,7 +174,6 @@ def get_case_status_payload(case_id: str) -> dict:
 
     # Reconstruct files list
     files = []
-    results = []
     errors = []
 
     for d in doc_rows:
@@ -194,34 +192,6 @@ def get_case_status_payload(case_id: str) -> dict:
             "status": d["status"],
             "document_type": d.get("document_type") or "",
         })
-
-        # results element (only if status is structured)
-        if d["status"] == "structured":
-            structured_data = {}
-            if d.get("structured_data"):
-                try:
-                    structured_data = json.loads(d["structured_data"])
-                except Exception:
-                    pass
-
-            doc_type = d.get("document_type") or ""
-            safe_type = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in doc_type.upper())
-            results.append({
-                "doc_id": d["doc_id"],
-                "filename": d["filename"],
-                "doc_type": doc_type,
-                "status": "complete",
-                "structured": structured_data,
-                "result_file": f"{d['doc_id']}_{safe_type}.json",
-                "total_pages": d["page_count"],
-                "chunks_used": 1,  # derived placeholder
-                "input_tokens": d["input_tokens"],
-                "output_tokens": d["output_tokens"],
-                "cost_usd": float(d["cost_usd"]),
-                "latency_ms": d["latency_ms"],
-                "model_used": d["model_used"],
-                "provider": "gemini" if "gemini" in (d["model_used"] or "").lower() else "groq"
-            })
 
         # errors element (if failed or classification_failed)
         if d["status"] in ("failed", "classification_failed"):
@@ -252,7 +222,6 @@ def get_case_status_payload(case_id: str) -> dict:
         "total_docs": case_row["total_docs"],
         "failed_docs": case_row["failed_docs"],
         "files": files,
-        "results": results,
         "errors": errors,
         "progress": progress,
         "log": logs

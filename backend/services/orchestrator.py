@@ -12,21 +12,17 @@ from backend.workers.tasks import (
     classify_document_task,
     merge_ocr_task,
     ocr_document_task,
-    persist_document_task,
     preprocess_document_task,
-    structure_document_task,
 )
 
 
 def build_document_chain(case_id: str, doc_id: str):
-    """Build the 6-stage chain for a single document."""
+    """Build the 4-stage chain for a single document."""
     return chain(
         preprocess_document_task.si(case_id, doc_id),
         ocr_document_task.si(case_id, doc_id),
         merge_ocr_task.si(case_id, doc_id),
         classify_document_task.si(case_id, doc_id),
-        structure_document_task.si(case_id, doc_id),
-        persist_document_task.si(case_id, doc_id),
     )
 
 
@@ -44,7 +40,7 @@ def start_case_pipeline(case_id: str):
 
     todo_files = [
         f for f in files_data
-        if status_by_id.get(f["doc_id"]) not in ("structured", "skipped")
+        if status_by_id.get(f["doc_id"]) not in ("classified", "skipped")
     ]
 
     callback = finalize_case_task.s(case_id)

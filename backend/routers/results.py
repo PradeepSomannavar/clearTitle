@@ -1,4 +1,4 @@
-"""Results endpoints: per-document structured extraction output."""
+"""Results endpoints: raw OCR output (no structured JSON)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from backend.database.repositories.case_repo import get_case_owner
 from backend.logger import get_logger
 from backend.services.auth import get_optional_user
-from backend.services.results import build_case_results
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -17,16 +16,6 @@ def _enforce_access(case_id: str, user: dict | None) -> None:
     owner = get_case_owner(case_id)
     if owner and (user is None or owner != user["id"]):
         raise HTTPException(status_code=403, detail="Not your case")
-
-
-@router.get("/results/{case_id}")
-async def get_results(case_id: str, user: dict | None = Depends(get_optional_user)):
-    """Results payload: case info + documents with structured JSON."""
-    _enforce_access(case_id, user)
-    try:
-        return build_case_results(case_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail="Case not found")
 
 
 @router.get("/results/{case_id}/ocr")

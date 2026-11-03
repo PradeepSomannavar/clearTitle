@@ -7,7 +7,6 @@ load input, invoke the stage, persist the result.
 from __future__ import annotations
 
 from backend.database.repositories import document_repo as state_port
-from backend.integrations.llm import model_router as llm_port
 from backend.integrations.redis import state_store as cache_port
 from backend.integrations.storage import file_utils as storage_port
 from backend.logger import get_logger
@@ -22,7 +21,6 @@ def build_context(case_id: str, doc_id: str) -> StageContext:
         case_id=case_id,
         doc_id=doc_id,
         config=None,
-        llm=llm_port,
         cache=cache_port,
         storage=storage_port,
         state=state_port,

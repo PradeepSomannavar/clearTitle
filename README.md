@@ -1,6 +1,6 @@
-# clearTitle — AI Property Document Extraction
+# clearTitle — Property Document OCR Pipeline
 
-An end-to-end document extraction platform for **Karnataka property documents**. clearTitle extracts structured JSON from scanned PDFs (Sarvam Vision OCR), runs single-pass LLM structuring with a Gemini/Groq fallback chain, and presents everything in a warm, premium dashboard — with a landing page that explains the product.
+An end-to-end **OCR pipeline** for **Karnataka property documents**. clearTitle takes scanned PDFs through preprocess → Sarvam Vision OCR → chunk merge → keyword classification, and presents per-document status plus the raw extracted text in a warm, premium dashboard — with a landing page that explains the product.
 
 ---
 
@@ -10,7 +10,7 @@ An end-to-end document extraction platform for **Karnataka property documents**.
 flowchart TD
     subgraph Frontend["Frontend Layer (React SPA)"]
         UI["clearTitle SPA\nReact 19 + Vite + TypeScript\nLanding page (/) + Dashboard (/#/app)"]
-        DASH["Extraction Dashboard\nUpload . Processing . Results . History"]
+        DASH["OCR Dashboard\nUpload . Processing . OCR text . History"]
         AUTH["Auth Screen\nRegister / Login / Link guest case"]
         HOME["Landing sections\nHero . Pipeline . Audit demo . FAQ"]
     end
@@ -18,7 +18,7 @@ flowchart TD
     subgraph API["API Gateway Layer (FastAPI)"]
         R_AUTH["Auth Router\n/api/auth/register . /login . /me"]
         R_CASES["Cases Router\n/api/upload . /api/cases . /api/process\n/api/status . /api/retry\nreplace / skip / case upload / link"]
-        R_RESULTS["Results Router\n/api/results/{id}\nGET /api/results/{id}/ocr\nGET /api/case/{id}/doc/{id}/pdf"]
+        R_RESULTS["Results Router\nGET /api/results/{id}/ocr\nGET /api/case/{id}/doc/{id}/pdf"]
     end
 
     subgraph Orchestration["Async Task Queue"]
@@ -26,13 +26,11 @@ flowchart TD
         REDIS_BROKER["Redis Broker / State Store"]
     end
 
-    subgraph Pipeline["Document Pipeline (per PDF, 6 stages)"]
+    subgraph Pipeline["Document Pipeline (per PDF, 4 stages)"]
         PREPROC["1 Preprocess\n(denoise & deskew)"]
         OCR["2 Sarvam OCR\n(PDF -> Raw Text)"]
         MERGE["3 Merge Chunks"]
         CLASSIFY["4 Classify\n(Keyword-based)"]
-        STRUCTURE["5 Structure\n(Gemini primary, Groq fallback)"]
-        PERSIST["6 Persist\n(save JSON + tokens/cost to MySQL)"]
     end
 
     subgraph Analysis["Case-Level Finalize"]
@@ -49,9 +47,8 @@ flowchart TD
     DASH -->|"HTTP API Requests"| API
     R_CASES -->|"Dispatches tasks"| CELERY
     CELERY -->|"Reads/writes status"| REDIS
-    CELERY --> PREPROC --> OCR --> MERGE --> CLASSIFY --> STRUCTURE --> PERSIST
-    PERSIST -->|"chord"| FINALIZE
-    STRUCTURE -->|"Saves structured data"| MYSQL
+    CELERY --> PREPROC --> OCR --> MERGE --> CLASSIFY
+    CLASSIFY -->|"chord"| FINALIZE
     FINALIZE -->|"Recomputes status"| MYSQL
 ```
 
@@ -59,22 +56,21 @@ flowchart TD
 
 | Component | Technology | Description |
 |---|---|---|
-| **Frontend** | React 19, Vite 6, TypeScript, Tailwind CSS 4 | Landing page + extraction dashboard with AI pipeline view, results, structured-data cards, and case history |
-| **API Layer** | FastAPI, Uvicorn | Async REST API with JWT auth for cases, documents, and results |
-| **Async Tasks** | Celery, Redis | Idempotent background stages — preprocess, OCR, merge, classify, structure, persist, finalize |
+| **Frontend** | React 19, Vite 6, TypeScript, Tailwind CSS 4 | Landing page + OCR dashboard with AI pipeline view, OCR text viewer, and case history |
+| **API Layer** | FastAPI, Uvicorn | Async REST API with JWT auth for cases, documents, and OCR text |
+| **Async Tasks** | Celery, Redis | Idempotent background stages — preprocess, OCR, merge, classify, finalize |
 | **OCR Service** | Sarvam AI Vision OCR | High-accuracy OCR for mixed English/Kannada text; chunks >10-page PDFs with overlap |
-| **Structuring** | Gemini 2.5 Flash (primary) / Groq (fallback) | Single-pass JSON field extraction per document type |
 | **Relational DB** | MySQL | Unified tables for users, cases, and documents |
 
 ---
 
-## Extraction Features
+## OCR Features
 
-- **6-stage document pipeline** — preprocess→OCR→merge→classify→structure→persist, each stage its own idempotent Celery task.
-- **Per-doc structured JSON** — every supported document type yields its own strict schema, viewable per document in the dashboard.
-- **EC page-split merge** — a ledger row split across consecutive pages is recombined during persist-stage normalisation, so one transaction is never duplicated.
-- **Cost tracking** — tokens, latency and per-doc cost are stored with every structured result.
-- **No misleading success on failure** — if a stage fails the case is marked `partial`/`failed`, the dashboard shows a clear retry state, and results only reflect documents that truly structured.
+- **4-stage document pipeline** — preprocess→OCR→merge→classify, each stage its own idempotent Celery task.
+- **Per-document raw text** — complete OCR `full_text` per document, viewable in the dashboard and via `GET /api/results/{case_id}/ocr`.
+- **Page-aware merging** — overlapping OCR chunks are deduplicated into one clean text per document, with page count tracked.
+- **Keyword classification** — filename + content keywords (English + Kannada) tag each document type; unknown documents are flagged for replace/skip.
+- **No misleading success on failure** — if a stage fails the case is marked `partial`/`failed`, the dashboard shows a clear retry state.
 - **Idempotent Stages** — Celery `acks_late` + per-stage idempotency guards make re-runs and retries safe.
 - **Human-in-the-Loop** — failed or unclassified documents can be replaced or skipped; retries resume the pipeline for just those documents.
 
@@ -101,17 +97,15 @@ Classification is keyword-based (filename first, then OCR content, English + Kan
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/MyMane24/clearTitle.git
+git clone https://github.com/PradeepSomannavar/clearTitle.git
 cd clearTitle
 cp .env.example .env
 ```
 
-Open `.env` and fill in the API keys (everything else works as-is):
+Open `.env` and fill in the API key (everything else works as-is):
 
 ```env
 SARVAM_API_KEY=your_key_here
-GROQ_API_KEY=your_key_here
-GEMINI_API_KEY=your_key_here
 ```
 
 ### 2. Start everything
@@ -159,7 +153,7 @@ When deployed via Docker, the built SPA is served by FastAPI from `frontend/dist
 
 ### Option A — phpMyAdmin (browser, zero install)
 
-Open **http://localhost:8080** — you'll see all tables (`users`, `cases`, `documents`, `title_chains`, `verification_results`) and can browse/query data directly.
+Open **http://localhost:8080** — you'll see all tables (`users`, `cases`, `documents`) and can browse/query data directly.
 
 ### Option B — MySQL Workbench / DBeaver / TablePlus
 
@@ -196,7 +190,7 @@ The app is three independent layers. Each needs its own undo — `git` covers on
 | Path | In git? | Consequence |
 |---|---|---|
 | `.env` | No (secrets) | Must be backed up separately, stored securely |
-| `outputs/` | No | ~895 MB of OCR text + structured JSON. **Irreplaceable** — recovering it means re-running paid OCR |
+| `outputs/` | No | ~895 MB of OCR text. **Irreplaceable** — recovering it means re-running paid OCR |
 | `uploads/` | No | Original scanned PDFs. Re-uploadable from your own copies |
 | `backups/` | No | Local dump snapshots (see below) |
 
@@ -260,18 +254,18 @@ Always confirm an image really contains the code you think it does — a build f
 ```bash
 # Linux / macOS
 docker create --name chk cleartitle-api:b1196fc
-docker cp chk:/app/backend/services/report.py /tmp/report.py
-git hash-object /tmp/report.py
-git rev-parse b1196fc:backend/services/report.py   # the two hashes must match
+docker cp chk:/app/backend/workers/tasks.py /tmp/tasks.py
+git hash-object /tmp/tasks.py
+git rev-parse b1196fc:backend/workers/tasks.py   # the two hashes must match
 docker rm chk
 ```
 
 ```powershell
 # Windows PowerShell
 docker create --name chk cleartitle-api:b1196fc
-docker cp chk:/app/backend/services/report.py "$env:TEMP\report.py"
-git hash-object "$env:TEMP\report.py"
-git rev-parse b1196fc:backend/services/report.py
+docker cp chk:/app/backend/workers/tasks.py "$env:TEMP\tasks.py"
+git hash-object "$env:TEMP\tasks.py"
+git rev-parse b1196fc:backend/workers/tasks.py
 docker rm chk
 ```
 
@@ -301,8 +295,8 @@ docker rm chk
 |---|---|---|
 | `GET` | `/api/cases` | List cases (requires auth) |
 | `POST` | `/api/upload` | Upload PDFs and initialize a new case |
-| `POST` | `/api/process/{case_id}` | Trigger the async OCR + structuring pipeline |
-| `GET` | `/api/status/{case_id}` | Real-time pipeline status (progress, log, verification status) |
+| `POST` | `/api/process/{case_id}` | Trigger the async OCR pipeline |
+| `GET` | `/api/status/{case_id}` | Real-time pipeline status (progress, running log, errors) |
 | `POST` | `/api/retry/{case_id}` | Retry failed documents |
 | `POST` | `/api/case/{case_id}/upload` | Add more documents to an existing case |
 | `POST` | `/api/case/{case_id}/link` | Link a guest case to the logged-in account |
@@ -313,7 +307,6 @@ docker rm chk
 ### Results
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/api/results/{case_id}` | Results payload: case info + every document's structured JSON |
 | `GET` | `/api/results/{case_id}/ocr` | Raw OCR `full_text` for every document in a case |
 | `GET` | `/api/case/{case_id}/doc/{doc_id}/pdf` | Serve original PDF (authenticated, opens in new tab) |
 
@@ -329,12 +322,12 @@ Most case endpoints accept an optional JWT. Guest (anonymous) cases work without
 
 ## The Document Pipeline
 
-Every uploaded PDF goes through **6 stages**, each its own idempotent Celery task, chained and joined by a **chord** that runs one chain per document in parallel:
+Every uploaded PDF goes through **4 stages**, each its own idempotent Celery task, chained and joined by a **chord** that runs one chain per document in parallel:
 
 ```
-DOC_001 --> preprocess --> ocr --> merge --> classify --> structure --> persist --+
-DOC_002 --> preprocess --> ocr --> merge --> classify --> structure --> persist --+--> finalize --> title chain --> verify
-DOC_003 --> preprocess --> ocr --> merge --> classify --> structure --> persist --+
+DOC_001 --> preprocess --> ocr --> merge --> classify --+
+DOC_002 --> preprocess --> ocr --> merge --> classify --+--> finalize
+DOC_003 --> preprocess --> ocr --> merge --> classify --+
 ```
 
 | # | Stage | Work |
@@ -343,8 +336,6 @@ DOC_003 --> preprocess --> ocr --> merge --> classify --> structure --> persist 
 | 2 | **OCR** | Sarvam OCR (Kannada+English); <=10 pages one job, >10 pages overlapping 10-page chunks in parallel |
 | 3 | **Merge** | Deduplicate overlapping pages, re-join split tables, strip base64 blobs |
 | 4 | **Classify** | Keyword match (filename first, then content) -> document type |
-| 5 | **Structure** | LLM fills the strict per-type JSON schema (Gemini primary, Groq fallback) |
-| 6 | **Persist** | Save JSON + tokens/cost/model to MySQL, write final file to `outputs/` |
 
 **Then, once** (case level):
 
@@ -366,38 +357,20 @@ clearTitle/
 │   ├── config.py                   # ALL env vars in one place
 │   ├── logger.py                   # Logging utility
 │   │
-│   ├── prompts/                    # Versioned LLM prompts (editable .txt files)
-│   │   ├── loader.py               #   load_prompt() + load_schema() helpers
-│   │   ├── verification.txt        #   SD vs EC cross-check prompt
-│   │   ├── verification_schema.json#   Expected output shape
-│   │   ├── title_chain.txt         #   Title tree construction prompt
-│   │   ├── title_chain_schema.json #   Expected output shape
-│   │   ├── analysis_system.txt     #   Gemini system instruction for analysis
-│   │   ├── extraction_contract.txt #   Shared extraction rules
-│   │   ├── gemini_system.txt       #   Gemini extraction system template
-│   │   ├── gemini_user.txt         #   Gemini extraction user template
-│   │   ├── groq_system.txt         #   Groq extraction system prompt
-│   │   └── groq_user.txt           #   Groq extraction user template
-│   │
 │   ├── routers/                    # HTTP layer (thin: validate -> call service)
 │   │   ├── auth.py                 #   /register, /login, /me
 │   │   ├── cases.py                #   upload, process, status, retry, replace, skip, delete
-│   │   └── results.py              #   /results/{id}, /results/{id}/analyze
+│   │   └── results.py              #   /results/{id}/ocr
 │   │
 │   ├── services/                   # Business logic (no HTTP, no Celery)
 │   │   ├── orchestrator.py         #   builds Celery chains + chords
 │   │   ├── classifier.py           #   keyword-based doc-type detection
-│   │   ├── extract.py              #   OCR retry + LLM fallback-chain driver
-│   │   ├── results.py              #   assemble /api/results payload
-│   │   ├── extraction_prompts.py   #   prompt builders (loads from backend/prompts/)
-│   │   ├── auth.py                 #   JWT + bcrypt helpers
-│   │   └── schemas/                #   per-doc-type JSON extraction schemas
-│   │       ├── static.py           #     17 hand-written JSON schemas
-│   │       └── generic.py          #     fallback schema for unknown types
+│   │   ├── extract.py              #   OCR retry wrapper for the Sarvam client
+│   │   └── auth.py                 #   JWT + bcrypt helpers
 │   │
 │   ├── workers/                    # Celery layer (thin task wrappers)
-│   │   ├── tasks.py                #   6 idempotent stage tasks
-│   │   ├── stages.py               #   the actual stage logic (preprocess->persist)
+│   │   ├── tasks.py                #   4 idempotent stage tasks
+│   │   ├── stages.py               #   the actual stage logic (preprocess->classify)
 │   │   ├── stage_adapter.py        #   task -> stage.invoke adapter
 │   │   ├── idempotency.py          #   skip-already-done guard
 │   │   ├── finalize.py             #   chord callback: recompute case status
@@ -406,8 +379,6 @@ clearTitle/
 │   ├── domain/state_machine.py     # Stage enum + status->stage mapping (pure logic)
 │   │
 │   ├── integrations/               # Adapters to external/plumbing systems
-│   │   ├── llm/                    #   gemini_client, gemini_executor, groq_executor,
-│   │   │                           #   model_router, rate_limiter
 │   │   ├── ocr/                    #   sarvam_client, ocr_merger, preprocessor
 │   │   ├── redis/                  #   client, state_store, lock
 │   │   └── storage/                #   file_utils
@@ -418,8 +389,6 @@ clearTitle/
 │   │   └── repositories/           #  SQL access (case, document, pipeline logs, user)
 │   │
 │   ├── shared/constants.py         # doc-type + status string constants
-│   ├── shared/ec_ledger.py         # EC page-split row recombinator (read-boundary fix)
-│   └── shared/helpers.py           # LLM output merge helpers
 │
 ├── frontend/                       # React SPA (Vite)
 │   ├── src/
@@ -436,7 +405,7 @@ clearTitle/
 │   ├── server.ts                   # Dev server (Express + Vite middleware)
 │   └── index.html
 │
-├── outputs/                        # PDFs + structured outputs (bind-mounted, persists across restarts, NOT in git)
+├── outputs/                        # PDFs + OCR text outputs (bind-mounted, persists across restarts, NOT in git)
 ├── uploads/                        # Original uploaded PDFs (bind-mounted, NOT in git)
 ├── backups/                        # Local mysqldump snapshots (NOT in git)
 ├── docs/                           # Local-only design notes (gitignored — not in a fresh clone)
@@ -448,29 +417,11 @@ clearTitle/
 
 ---
 
-## LLM Prompts
-
-All LLM prompts are versioned text files in `backend/prompts/`. Edit the `.txt` files to change prompts — no Python changes needed.
-
-| File | Used by | Purpose |
-|---|---|---|
-| `extraction_contract.txt` | `services/extraction_prompts.py` | Shared extraction rules (OUTPUT_QUALITY_CONTRACT) |
-| `gemini_system.txt` | `services/extraction_prompts.py` | Gemini extraction system template |
-| `gemini_user.txt` | `services/extraction_prompts.py` | Gemini extraction user template |
-| `groq_system.txt` | `integrations/llm/groq_executor.py` | Groq extraction system prompt |
-| `groq_user.txt` | `integrations/llm/groq_executor.py` | Groq extraction user template |
-
-Load helpers: `from backend.prompts.loader import load_prompt, load_schema`
-
----
-
 ## API Costs
 
 | Provider | Model | Cost per case (3 docs) |
 |---|---|---|
 | **Sarvam AI** | OCR (Vision) | Free tier: 10,000 chars/call |
-| **Google** | Gemini 2.5 Flash | ~3-10 per case (varies with doc size and Kannada text) |
-| **Groq** | GPT-OSS 120B/20B | Free tier (fallback only) |
 
 ---
 
@@ -481,7 +432,7 @@ The frontend follows a warm, editorial design system shared by the landing page 
 - **Palette** — Cream background (`#FFF8F2`), warm stone neutrals, and an orange brand scale (`#ea580c`, `#f97316`, amber `#fbbf24`). Semantic status colors (emerald / amber / rose) for verification results.
 - **Typography** — Inter (body), Plus Jakarta Sans (display/headings), Instrument Serif (accent italics).
 - **Icons** — lucide-react (no emoji).
-- **Dashboard** (`/#/app`) — Custom CSS (`dashboard.css`) with CSS-token theming: cards, badges, metric tiles, AI pipeline view with pulsing animations, title-chain timeline, verification tables, and case history sidebar.
+- **Dashboard** (`/#/app`) — Custom CSS (`dashboard.css`) with CSS-token theming: cards, badges, metric tiles, AI pipeline view with pulsing animations, OCR-text viewers, and case history sidebar.
 
 ---
 
@@ -568,4 +519,4 @@ cd frontend && npm run lint   # frontend type-check (tsc --noEmit)
 
 ---
 
-*Last updated: 5 October 2026*
+*Last updated: 3 November 2026*

@@ -287,7 +287,7 @@ async def retry_failed(case_id: str, user: dict | None = Depends(get_optional_us
         from backend.database.repositories.document_repo import get_case_documents
         db_docs = get_case_documents(case_id)
         actively_processing = any(
-            d.get("status") in ("processing", "pending", "preprocessing", "ocr", "structuring")
+            d.get("status") in ("preprocessing", "ocr_in_progress", "merging", "classifying")
             for d in db_docs
         )
         if actively_processing:

@@ -37,7 +37,7 @@ def finalize_case_task(results: list, case_id: str):
             1 for d in docs
             if d.get("status") in ("failed", "classification_failed")
         )
-        success_count = sum(1 for d in docs if d.get("status") == "structured")
+        success_count = sum(1 for d in docs if d.get("status") == "classified")
 
         new_status = "failed" if (success_count == 0 and failed_count > 0) else ("complete" if failed_count == 0 else "partial")
         from backend.integrations.redis.state_store import set_case_status

@@ -1,4 +1,4 @@
-"""6 per-document pipeline stage tasks.
+"""4 per-document pipeline stage tasks.
 
 Tasks are thin Celery wrappers: retry/idempotency decorators plus a `run_stage`
 adapter call. Stage logic lives in `backend.workers.stages`.
@@ -16,9 +16,7 @@ from backend.workers.stages import (
     ClassifyStage,
     MergeStage,
     OcrStage,
-    PersistStage,
     PreprocessStage,
-    StructureStage,
 )
 
 logger = get_logger(__name__)
@@ -58,15 +56,3 @@ def merge_ocr_task(case_id: str, doc_id: str):
 @idempotent_stage(Stage.CLASSIFYING, Stage.CLASSIFIED)
 def classify_document_task(case_id: str, doc_id: str):
     return run_stage(ClassifyStage(), task_name="classify", case_id=case_id, doc_id=doc_id)
-
-
-@celery_app.task(**TASK_RETRY_CONFIG)
-@idempotent_stage(Stage.STRUCTURING, Stage.STRUCTURING_DONE)
-def structure_document_task(case_id: str, doc_id: str):
-    return run_stage(StructureStage(), task_name="structure", case_id=case_id, doc_id=doc_id)
-
-
-@celery_app.task(**TASK_RETRY_CONFIG)
-@idempotent_stage(Stage.PERSISTING, Stage.STRUCTURED)
-def persist_document_task(case_id: str, doc_id: str):
-    return run_stage(PersistStage(), task_name="persist", case_id=case_id, doc_id=doc_id)

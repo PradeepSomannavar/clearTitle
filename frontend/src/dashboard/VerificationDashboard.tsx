@@ -3,10 +3,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import './dashboard.css';
 import clearTitleLogo from '../assets/clearTitle.png';
 import {
-  API, AuthResponse, AuthUser, CaseListItem, CaseResults, HealthStatus,
+  API, AuthResponse, AuthUser, CaseListItem, HealthStatus, OcrDocText,
   StatusResponse, getToken, setToken,
 } from '../api/backend';
-import { DocSummary } from './utils';
 import {
   AlertTriangle, Check, CheckCircle2,
   FileText, FileUp, Lock, LogIn, LogOut, Menu, Play, Plus, RefreshCw,
@@ -53,10 +52,7 @@ function docStageInfo(docStatus: string): { label: string; pct: number; state: '
     merging:             { label: 'Reading and understanding...', pct: 60, state: 'active' },
     merged:              { label: 'Reading and understanding...', pct: 70, state: 'active' },
     classifying:         { label: 'Identifying key details...',  pct: 80, state: 'active' },
-    classified:          { label: 'Identifying key details...',  pct: 85, state: 'active' },
-    structuring:         { label: 'Extracting property information...', pct: 90, state: 'active' },
-    structuring_done:    { label: 'Extracting property information...', pct: 95, state: 'active' },
-    structured:          { label: 'Complete',              pct: 100, state: 'done' },
+    classified:          { label: 'Complete',              pct: 100, state: 'done' },
     failed:              { label: 'Failed',                pct: 0,   state: 'failed' },
     classification_failed:{ label: 'Unrecognized document', pct: 0, state: 'failed' },
     pending_retry:       { label: 'Waiting to retry...',  pct: 0,   state: 'waiting' },
@@ -115,14 +111,14 @@ function DocPipelineCard({ doc, compact }: { doc: { doc_id: string; original_nam
 
 function AIPipeline({ statusData }: { statusData: StatusResponse }) {
   const files = statusData.files || [];
-  const allDone = files.length > 0 && files.every(f => f.status === 'structured' || f.status === 'failed' || f.status === 'classification_failed');
-  const anyActive = files.some(f => f.status !== 'uploaded' && f.status !== 'structured' && f.status !== 'failed' && f.status !== 'classification_failed');
+  const allDone = files.length > 0 && files.every(f => f.status === 'classified' || f.status === 'failed' || f.status === 'classification_failed');
+  const anyActive = files.some(f => f.status !== 'uploaded' && f.status !== 'classified' && f.status !== 'failed' && f.status !== 'classification_failed');
   const hasFiles = files.length > 0;
 
   const allComplete = allDone && hasFiles;
   const showAnalysis = allDone && hasFiles;
-  const activeDocCount = files.filter(f => f.status !== 'uploaded' && f.status !== 'structured' && f.status !== 'failed' && f.status !== 'classification_failed').length;
-  const doneDocCount = files.filter(f => f.status === 'structured').length;
+  const activeDocCount = files.filter(f => f.status !== 'uploaded' && f.status !== 'classified' && f.status !== 'failed' && f.status !== 'classification_failed').length;
+  const doneDocCount = files.filter(f => f.status === 'classified').length;
 
   return (
     <div className="ai-pipeline">
@@ -181,25 +177,13 @@ const UPLOAD_SLOTS: { id: UploadSlot; label: string; desc: string; required: boo
   { id: 'additional', label: 'Additional Documents', desc: 'RTC, Khata, Mutation, prior deeds — optional.', required: false, multiple: true },
 ];
 
-function GuestReportPreview({ results, onSignIn, onNewCase }: {
-  results: CaseResults;
+function GuestReportPreview({ ocrDocs, caseId, onSignIn, onNewCase }: {
+  ocrDocs: OcrDocText[];
+  caseId: string | null;
   onSignIn: () => void;
   onNewCase: () => void;
 }) {
-  const sd = results.documents.find(d =>
-    d.document_type === 'SALE_DEED' || d.structured?.document_type === 'SALE_DEED'
-  );
-  const s = sd?.structured || {};
-  const vendors: any[] = s.parties?.vendors || [];
-  const purchasers: any[] = s.parties?.purchasers || [];
-  const ps = s.property_schedule || {};
-  const caseInfo = results.case;
-
-  const scheduleText = String(
-    ps.full_schedule_description
-      || [ps.cts_number, ps.survey_number].filter(Boolean).join(', ')
-      || ''
-  ).slice(0, 200);
+  const teaser = (ocrDocs.find(d => d.available)?.full_text || '').slice(0, 240);
 
   return (
     <div className="gp-shell">
@@ -207,77 +191,43 @@ function GuestReportPreview({ results, onSignIn, onNewCase }: {
       <div className="gp-header">
         <div className="gp-header-left">
           <span className="gp-pulse" />
-          <span className="gp-case-id">CASE #{caseInfo?.case_id || '—'}</span>
+          <span className="gp-case-id">CASE #{caseId || '—'}</span>
         </div>
       </div>
 
       {/* Content Stack */}
       <div className="gp-content">
 
-        {/* Card 1: Parties */}
+        {/* Card 1: Documents */}
         <div className="gp-card">
           <div className="gp-card-head">
             <div className="gp-card-label">
-              <span className="gp-card-label-text">PARTIES IDENTIFIED</span>
+              <span className="gp-card-label-text">DOCUMENTS PROCESSED</span>
             </div>
+            <span className="gp-card-badge">{ocrDocs.length} DOC{ocrDocs.length === 1 ? '' : 'S'}</span>
           </div>
-          <div className="gp-parties-grid">
-            {vendors.length > 0 && vendors.map((v: any, i: number) => (
-              <div className="gp-party-cell" key={`v-${i}`}>
-                <span className="gp-party-role">VENDORS (SELLER)</span>
-                <p className="gp-party-name">{v.entity_name || '—'}</p>
-                {v.address && <p className="gp-party-addr">{v.address}</p>}
+          <div>
+            {ocrDocs.map(d => (
+              <div key={String(d.doc_id)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#292524', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {d.filename || `DOC-${d.doc_id}`}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', color: d.available ? '#059669' : '#d97706', whiteSpace: 'nowrap' }}>
+                  {d.available ? 'OCR READY' : (d.status || 'PENDING').toUpperCase()}
+                </span>
               </div>
             ))}
-            {purchasers.length > 0 && purchasers.map((p: any, i: number) => (
-              <div className="gp-party-cell" key={`p-${i}`}>
-                <span className="gp-party-role">PURCHASERS (BUYER)</span>
-                <p className="gp-party-name">{p.entity_name || '—'}</p>
-                {p.address && <p className="gp-party-addr">{p.address}</p>}
-              </div>
-            ))}
+            {ocrDocs.length === 0 && (
+              <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Processing — results appear here when the run finishes.</p>
+            )}
           </div>
         </div>
 
-        {/* Card 2: Property Details */}
-        {(ps.survey_number || ps.plot_number || ps.project_name || ps.floor_location || ps.dimensions || ps.super_built_up_area) && (
-          <div className="gp-card">
-            <div className="gp-card-head">
-              <div className="gp-card-label">
-                <span className="gp-card-label-text">PROPERTY DETAILS</span>
-              </div>
-              {ps.plot_number && <span className="gp-card-badge">PLOT NO. {ps.plot_number}</span>}
-            </div>
-            <div className="gp-props-grid">
-              {ps.survey_number && (
-                <div className="gp-prop-cell">
-                  <span className="gp-prop-label">SURVEY</span>
-                  <p className="gp-prop-val">{ps.survey_number}</p>
-                </div>
-              )}
-              {ps.project_name && (
-                <div className="gp-prop-cell">
-                  <span className="gp-prop-label">LOCATION</span>
-                  <p className="gp-prop-val">{ps.project_name}</p>
-                </div>
-              )}
-              {(ps.floor_location || ps.dimensions || ps.super_built_up_area) && (
-                <div className="gp-prop-cell">
-                  <span className="gp-prop-label">STRUCTURE</span>
-                  <p className="gp-prop-val gp-prop-truncate">
-                    {[ps.floor_location, ps.dimensions, ps.super_built_up_area].filter(Boolean).join(', ')}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Card 3: Blurred teaser */}
-        {scheduleText && (
+        {/* Card 2: Blurred teaser */}
+        {teaser && (
           <div className="gp-card gp-card-blurred">
-            <span className="gp-blur-label">HISTORICAL TITLE DEVOLUTION &amp; ENCUMBRANCES</span>
-            <p className="gp-blur-text">{scheduleText}...</p>
+            <span className="gp-blur-label">RAW EXTRACTED TEXT</span>
+            <p className="gp-blur-text">{teaser}...</p>
           </div>
         )}
 
@@ -288,21 +238,21 @@ function GuestReportPreview({ results, onSignIn, onNewCase }: {
               <Lock size={24} />
             </div>
             <div className="gp-lock-text">
-              <h2 className="gp-lock-title">Full Due Diligence Findings Locked</h2>
+              <h2 className="gp-lock-title">Full OCR Text Locked</h2>
               <p className="gp-lock-sub">
-                Authenticate your session to inspect the complete 3-stage devolution timeline, check prior share exposure alerts, and export title scrutiny sheets.
+                Authenticate your session to read the complete extracted text of every uploaded document.
               </p>
             </div>
             <button className="gp-lock-cta" onClick={onSignIn}>
               <Lock size={14} />
-              <span>Sign in to Unlock Full Findings</span>
+              <span>Sign in to Unlock</span>
             </button>
             <div className="gp-lock-trust">
               <span>✓ Instant Access</span>
               <span>•</span>
               <span>✓ Zero Setup</span>
               <span>•</span>
-              <span>✓ Scrutiny Ready</span>
+              <span>✓ Nothing Kept on Device</span>
             </div>
           </div>
         </div>
@@ -311,8 +261,8 @@ function GuestReportPreview({ results, onSignIn, onNewCase }: {
 
       {/* Bottom Meta */}
       <div className="gp-footer">
-        <span>Protected by 256-Bit Cryptographic Vault</span>
-        <span>Forensic Title Scrutiny Session</span>
+        <span>Private session — nothing is stored on this device</span>
+        <span>OCR Status Preview</span>
       </div>
     </div>
   );
@@ -331,8 +281,7 @@ export function VerificationDashboard() {
   const [progressLabel, setProgressLabel] = useState('Initialising...');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [statusData, setStatusData] = useState<StatusResponse | null>(null);
-  const [results, setResults] = useState<CaseResults | null>(null);
-  const [activeDocId, setActiveDocId] = useState<string | null>(null);
+  const [ocrDocs, setOcrDocs] = useState<OcrDocText[]>([]);
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [cases, setCases] = useState<CaseListItem[]>([]);
   const [activeCaseId, setActiveCaseId] = useState<string | null>(null);
@@ -372,15 +321,6 @@ export function VerificationDashboard() {
 
   // Clear any pending timers on unmount.
   useEffect(() => () => { /* polling interval cleared by stopPolling */ }, []);
-
-  // Sync activeDocId with results.documents
-  useEffect(() => {
-    if (results?.documents && results.documents.length > 0) {
-      if (!activeDocId || !results.documents.some(d => String(d.doc_id) === String(activeDocId))) {
-        setActiveDocId(String(results.documents[0].doc_id));
-      }
-    }
-  }, [results]);
 
   // Close profile menu on outside click / Escape
   useEffect(() => {
@@ -425,16 +365,16 @@ export function VerificationDashboard() {
         const d = await API.health();
         if (!cancelled) setHealth(d);
       } catch {
-        if (!cancelled) setHealth({ status: 'error', sarvam_key: false, groq_key: false, gemini_key: false });
+        if (!cancelled) setHealth({ status: 'error', sarvam_key: false });
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  const healthOk = !!health && !!health.sarvam_key && !!health.groq_key && !!health.gemini_key;
+  const healthOk = !!health && !!health.sarvam_key;
   const healthText = !health ? "Checking..."
     : healthOk ? "API keys loaded"
-      : `⚠ Missing: ${[!health.sarvam_key && "Sarvam", !health.groq_key && "Groq", !health.gemini_key && "Gemini"].filter(Boolean).join(", ")}`;
+      : `⚠ Missing: ${[!health.sarvam_key && "Sarvam"].filter(Boolean).join(", ")}`;
 
   // ── Sidebar: load cases ──
   const loadCases = useCallback(async () => {
@@ -455,17 +395,14 @@ export function VerificationDashboard() {
     if (!caseId) return;
     (async () => {
       try {
-        const data = await API.getResults(caseId);
+        const s = await API.status(caseId);
         setCurrentCaseId(caseId);
-        setResults(data);
-        const docs = data.documents.filter(d => d.status === "structured");
-        if (docs.length > 0) setActiveDocId(String(docs[0].doc_id));
-        const cs = data.case?.status;
-        if (cs && !COMPLETE_STATUSES.includes(cs) && cs !== "failed") {
+        const terminal = COMPLETE_STATUSES.includes(s.status) || s.status === 'failed';
+        if (terminal) {
+          await showResults(caseId);
+        } else {
           setView('processing');
           startPolling(caseId);
-        } else {
-          setView('results');
         }
       } catch {
         sessionStorage.removeItem("currentCaseId");
@@ -578,12 +515,10 @@ export function VerificationDashboard() {
     setView('results');
     sessionStorage.setItem("currentCaseId", caseId);
     try {
-      const data = await API.getResults(caseId);
-      setResults(data);
-      const docs = data.documents.filter(d => d.status === "structured");
-      if (docs.length > 0) setActiveDocId(String(docs[0].doc_id));
+      const data = await API.getOcr(caseId);
+      setOcrDocs(data.documents || []);
     } catch (e: any) {
-      addLog(`✗ Failed to load results: ${e.message}`, "log-err");
+      addLog(`✗ Failed to load OCR text: ${e.message}`, "log-err");
     }
   };
 
@@ -592,13 +527,11 @@ export function VerificationDashboard() {
     setActiveCaseId(caseId);
     sessionStorage.setItem("currentCaseId", caseId);
     try {
-      const data = await API.getResults(caseId);
-      setResults(data);
-      const docs = data.documents.filter(d => d.status === "structured");
-      if (docs.length > 0) setActiveDocId(String(docs[0].doc_id));
+      const data = await API.getOcr(caseId);
+      setOcrDocs(data.documents || []);
       setView('results');
     } catch (e: any) {
-      addLog(`✗ Failed to load results: ${e.message}`, "log-err");
+      addLog(`✗ Failed to load OCR text: ${e.message}`, "log-err");
     }
   };
 
@@ -698,8 +631,7 @@ export function VerificationDashboard() {
     );
   }
 
-  const needsAction = statusData?.needs_action || results?.needs_action || [];
-  const caseInfo = results?.case;
+  const needsAction = statusData?.needs_action || [];
 
   return (
     <div className="ctd-root">
@@ -822,7 +754,7 @@ export function VerificationDashboard() {
             <div className="card upload-card-full">
               <div className="upload-header-meta">
                 <h1 className="upload-main-title">Upload documents</h1>
-                <p className="upload-main-sub">We extract structured property data from your documents. Nothing is shared.</p>
+                <p className="upload-main-sub">We run high-accuracy OCR on your documents and classify them automatically. Nothing is shared.</p>
               </div>
 
               <div className="upload-slots-grid">
@@ -903,11 +835,12 @@ export function VerificationDashboard() {
             </div>
           )}
 
-          {view === 'results' && results && (
+          {view === 'results' && (
             <div className="report-main-wrap">
               {!auth ? (
                 <GuestReportPreview
-                  results={results}
+                  ocrDocs={ocrDocs}
+                  caseId={currentCaseId}
                   onSignIn={() => openAuth(currentCaseId || undefined)}
                   onNewCase={() => setView('upload')}
                 />
@@ -964,13 +897,13 @@ export function VerificationDashboard() {
                   <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 24, marginTop: 8 }}>
                     <div style={{ marginBottom: 16 }}>
                       <span className="font-mono" style={{ fontSize: 11, fontWeight: 600, color: '#6b7280', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        UPLOADED DOCUMENTS
+                        DOCUMENTS · OCR TEXT
                       </span>
                     </div>
 
-                    {results.documents && results.documents.length > 0 ? (
+                    {ocrDocs.length > 0 ? (
                       <div>
-                        {results.documents.map(d => {
+                        {ocrDocs.map(d => {
                           const isExpanded = expandedDocId === String(d.doc_id);
                           return (
                             <div key={String(d.doc_id)} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -985,20 +918,22 @@ export function VerificationDashboard() {
 
                                 {/* Col 2 & 3: Buttons */}
                                 <div className="doc-actions">
-                                  <button
-                                    onClick={() => setExpandedDocId(isExpanded ? null : String(d.doc_id))}
-                                    style={{
-                                      fontSize: 12, fontWeight: 600, color: '#ea580c', background: 'none', border: '1px solid #fed7aa',
-                                      borderRadius: 6, padding: '5px 12px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
-                                    }}
-                                  >
-                                    {isExpanded ? 'Hide Data' : 'View Structured Data'}
-                                  </button>
+                                  {d.available && (
+                                    <button
+                                      onClick={() => setExpandedDocId(isExpanded ? null : String(d.doc_id))}
+                                      style={{
+                                        fontSize: 12, fontWeight: 600, color: '#ea580c', background: 'none', border: '1px solid #fed7aa',
+                                        borderRadius: 6, padding: '5px 12px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                                      }}
+                                    >
+                                      {isExpanded ? 'Hide OCR Text' : 'View OCR Text'}
+                                    </button>
+                                  )}
 
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      const url = `/api/case/${currentCaseId || caseInfo?.case_id}/doc/${d.doc_id}/pdf`;
+                                      const url = `/api/case/${currentCaseId}/doc/${d.doc_id}/pdf`;
                                       const token = getToken();
                                       const headers: Record<string, string> = {};
                                       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -1020,21 +955,28 @@ export function VerificationDashboard() {
                                 </div>
                               </div>
 
-                              {/* Expanded Structured Data */}
-                              {isExpanded && d.status === 'structured' && (
+                              {/* Expanded OCR text */}
+                              {isExpanded && d.available && (
                                 <div style={{ paddingBottom: 16 }}>
-                                  <div className="doc-details-card">
-                                    <DocSummary res={{ ...d, structured: d.structured || d.structured_json }} />
+                                  <div className="doc-details-card" style={{ padding: 16 }}>
+                                    <div style={{ marginBottom: 8 }}>
+                                      <span className="font-mono" style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                                        Raw OCR text{d.total_pages ? ` — ${d.total_pages} pages` : ''}
+                                      </span>
+                                    </div>
+                                    <pre style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12.5, lineHeight: 1.7, color: '#334155', margin: 0, maxHeight: 480, overflow: 'auto' }}>
+                                      {d.full_text}
+                                    </pre>
                                   </div>
                                 </div>
                               )}
 
-                              {isExpanded && d.status !== 'structured' && (
+                              {isExpanded && !d.available && (
                                 <div style={{ paddingBottom: 16 }}>
                                   <div className="doc-details-card" style={{ padding: 16 }}>
                                     <div className="vr-sheet-empty">
                                       <AlertTriangle size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} />
-                                      {d.filename} — {d.error || d.status}
+                                      {d.filename} — OCR text not available ({d.status})
                                     </div>
                                   </div>
                                 </div>
@@ -1045,7 +987,7 @@ export function VerificationDashboard() {
                       </div>
                     ) : (
                       <div className="doc-details-card" style={{ padding: 24 }}>
-                        <div className="vr-sheet-empty">No document extractions available yet.</div>
+                        <div className="vr-sheet-empty">No OCR text available yet.</div>
                       </div>
                     )}
                   </div>

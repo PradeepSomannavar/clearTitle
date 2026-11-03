@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.config import CORS_ORIGINS, GEMINI_API_KEY, GROQ_API_KEY, SARVAM_API_KEY
+from backend.config import CORS_ORIGINS, SARVAM_API_KEY
 from backend.logger import get_logger
 from backend.routers import auth as auth_router
 from backend.routers import cases as cases_router
@@ -20,7 +20,7 @@ from backend.routers import results as results_router
 logger = get_logger(__name__)
 
 # ── Ensure required directories exist ─────────────────────────────────────────
-for d in ["uploads", "outputs/structured", "outputs/raw_ocr"]:
+for d in ["uploads", "outputs/ocr_raw"]:
     Path(d).mkdir(parents=True, exist_ok=True)
 
 # ── Lifespan (replaces deprecated @app.on_event) ─────────────────────────────
@@ -37,9 +37,9 @@ async def lifespan(app: FastAPI):
 
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="ClearTitle Property Verification Engine",
-    description="Sarvam OCR + LLM structuring + title-chain verification for property documents",
-    version="2.0.0",
+    title="ClearTitle Property OCR Engine",
+    description="Sarvam OCR pipeline: preprocess → OCR → merge → classify for property documents",
+    version="2.1.0",
     lifespan=lifespan,
 )
 
@@ -65,8 +65,6 @@ async def health():
     return {
         "status": "ok",
         "sarvam_key": bool(SARVAM_API_KEY),
-        "groq_key":   bool(GROQ_API_KEY),
-        "gemini_key": bool(GEMINI_API_KEY),
     }
 
 

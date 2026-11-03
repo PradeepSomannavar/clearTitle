@@ -1,8 +1,7 @@
 """
 Pipeline stage state machine.
 
-Pure logic extracted verbatim from `backend/pipeline/stages.py`.
-No I/O, no imports beyond stdlib — safe to use from any layer.
+Pure logic. No I/O, no imports beyond stdlib — safe to use from any layer.
 """
 
 from enum import IntEnum
@@ -18,10 +17,6 @@ class Stage(IntEnum):
     MERGED = 6
     CLASSIFYING = 7
     CLASSIFIED = 8
-    STRUCTURING = 9
-    STRUCTURING_DONE = 10
-    PERSISTING = 11
-    STRUCTURED = 12
 
     # Terminal/Error states - negative values to keep clean from comparison
     FAILED = -1
@@ -44,13 +39,9 @@ def stage_from_status(status: str) -> Stage:
         "classifying": Stage.CLASSIFYING,
         "classified": Stage.CLASSIFIED,
         "classification_failed": Stage.CLASSIFICATION_FAILED,
-        "structuring": Stage.STRUCTURING,
-        "structuring_done": Stage.STRUCTURING_DONE,
-        "persisting": Stage.PERSISTING,
-        "structured": Stage.STRUCTURED,
         "failed": Stage.FAILED,
         "skipped": Stage.SKIPPED,
-        "complete": Stage.STRUCTURED,
+        "complete": Stage.CLASSIFIED,
         "processing": Stage.PREPROCESSING,
         "pending_retry": Stage.UPLOADED,
     }
