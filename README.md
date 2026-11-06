@@ -516,7 +516,3 @@ cd frontend && npm run lint   # frontend type-check (tsc --noEmit)
 ```
 
 </details>
-
----
-
-*Last updated: 3 November 2026*
